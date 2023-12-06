@@ -8,7 +8,7 @@ Requirements
 - ROS Noetic
 - Isaac Sim 2022.2.1
 
-Please follow "Workstation Installation" procedure on the following URL and install "Issac Sim" by using the Omniverse Launcher.
+Please follow "Workstation Installation" procedure on the following URL and install "Isaac Sim" by using the Omniverse Launcher.
 
 https://docs.omniverse.nvidia.com/isaacsim/latest/installation/install_workstation.html
 
