@@ -1,0 +1,3 @@
+[submodule "usd/hsrb"]
+	path = usd/hsrb
+	url = https://github.com/hsr-project/hsrb_usd.git
