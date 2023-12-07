@@ -16,7 +16,7 @@ Install depending ROS packages
 ------------------------------
 
 ```
-sudo apt install ros-noetic-panda-moveit-config ros-noetic-franka-hw libgflags-dev ros-noetic-rviz-imu-plugin ros-noetic-map-server ros-noetic-dwa-local-planner
+sudo apt install ros-noetic-panda-moveit-config ros-noetic-franka-hw libgflags-dev ros-noetic-rviz-imu-plugin ros-noetic-map-server ros-noetic-dwa-local-planner ros-noetic-move-base
 cd ~/.local/share/ov/pkg/isaac_sim-2022.2.1
 git clone --recursive https://git.hsr.io/tmc/hsr-omniverse.git
 ./python.sh -m pip install rospkg
