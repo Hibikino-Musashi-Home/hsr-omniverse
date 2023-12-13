@@ -1,0 +1,39 @@
+# Copyright (c) 2023, Toyota Motor Corporation
+# Copyright (c) 2023, MID Academic Promotions, Inc.
+# All rights reserved.
+version: "2.3"
+services:
+  ros:
+    build:
+      context: .
+      dockerfile: Dockerfile.ros
+    ipc: host
+    network_mode: host
+    environment:
+      - DISPLAY
+    security_opt:
+      - seccomp:unconfined
+  isaacsim:
+    build:
+      context: .
+      dockerfile: Dockerfile.isaacsim
+    ipc: host
+    network_mode: host
+    security_opt:
+      - seccomp:unconfined
+    runtime: nvidia
+    devices:
+      - /dev/dri:/dev/dri
+    environment:
+      - DISPLAY
+      - ACCEPT_EULA=Y
+    volumes:
+      - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
+      - /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
+      - ${HOME}/.hsr-omniverse/cache/kit:/isaac-sim/kit/cache/Kit:rw
+      - ${HOME}/.hsr-omniverse/cache/ov:/root/.cache/ov:rw
+      - ${HOME}/.hsr-omniverse/cache/pip:/root/.cache/pip:rw
+      - ${HOME}/.hsr-omniverse/cache/glcache:/root/.cache/nvidia/GLCache:rw
+      - ${HOME}/.hsr-omniverse/cache/computecache:/root/.nv/ComputeCache:rw
+    depends_on:
+      - ros
