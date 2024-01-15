@@ -16,6 +16,15 @@
     <remap from="joint_states" to="$(arg prefix)/joint_states" />
   </node>
 
+  <node name="head_l_stereo_camera_frame_pub" pkg="tf" type="static_transform_publisher"
+    args="0 0 0 0 0 0 head_l_stereo_camera_link head_l_stereo_camera_frame 100" />
+  <node name="head_r_stereo_camera_frame_pub" pkg="tf" type="static_transform_publisher"
+    args="0 0 0 0 0 0 head_r_stereo_camera_link head_r_stereo_camera_frame 100" />
+  <node name="head_rgbd_sensor_rgb_frame_pub" pkg="tf" type="static_transform_publisher"
+    args="0 0 0 0 0 0 head_rgbd_sensor_link head_rgbd_sensor_rgb_frame 100" />
+  <node name="head_rgbd_sensor_depth_frame_pub" pkg="tf" type="static_transform_publisher"
+    args="0 0 0 0 0 0 head_rgbd_sensor_link head_rgbd_sensor_depth_frame 100" />
+
   <node name="image_republish_head_l_stereo_camera" pkg="image_transport" type="republish" args="raw compressed">
     <remap from="in" to="$(arg prefix)/head_l_stereo_camera/image_rect_color" />
     <remap from="out" to="$(arg prefix)/head_l_stereo_camera/image_rect_color" />
