@@ -374,7 +374,7 @@ class hsr:
         r_camera_prim.GetHorizontalApertureAttr().Set(1280 * 0.003)
         r_camera_prim.GetVerticalApertureAttr().Set(960 * 0.003)
         r_camera_prim.GetProjectionAttr().Set("perspective")
-        r_camera_prim.GetFocalLengthAttr().Set(968.770306867 + 0.003)  #  (1280/2) / tan(1.16762527/2)
+        r_camera_prim.GetFocalLengthAttr().Set(968.770306867 * 0.003)  #  (1280/2) / tan(1.16762527/2)
         r_camera_prim.GetFocusDistanceAttr().Set(400)
 
         # Creating a Camera prim
