@@ -361,40 +361,40 @@ class hsr:
         l_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim('/World' + self.prefix + "/head_l_stereo_camera_link/Camera", "Camera"))
         xform_api = UsdGeom.XformCommonAPI(l_camera_prim)
         xform_api.SetRotate((180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
-        l_camera_prim.GetHorizontalApertureAttr().Set(21)
-        l_camera_prim.GetVerticalApertureAttr().Set(16)
+        l_camera_prim.GetHorizontalApertureAttr().Set(1280 * 0.003)
+        l_camera_prim.GetVerticalApertureAttr().Set(960 * 0.003)
         l_camera_prim.GetProjectionAttr().Set("perspective")
-        l_camera_prim.GetFocalLengthAttr().Set(24)
+        l_camera_prim.GetFocalLengthAttr().Set(968.770306867 * 0.003)  #  (1280/2) / tan(1.16762527/2)
         l_camera_prim.GetFocusDistanceAttr().Set(400)
 
         # Creating a Camera prim
         r_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim('/World' + self.prefix + "/head_r_stereo_camera_link/Camera", "Camera"))
         xform_api = UsdGeom.XformCommonAPI(r_camera_prim)
         xform_api.SetRotate((180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
-        r_camera_prim.GetHorizontalApertureAttr().Set(21)
-        r_camera_prim.GetVerticalApertureAttr().Set(16)
+        r_camera_prim.GetHorizontalApertureAttr().Set(1280 * 0.003)
+        r_camera_prim.GetVerticalApertureAttr().Set(960 * 0.003)
         r_camera_prim.GetProjectionAttr().Set("perspective")
-        r_camera_prim.GetFocalLengthAttr().Set(24)
+        r_camera_prim.GetFocalLengthAttr().Set(968.770306867 + 0.003)  #  (1280/2) / tan(1.16762527/2)
         r_camera_prim.GetFocusDistanceAttr().Set(400)
 
         # Creating a Camera prim
         rgbd_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim('/World' + self.prefix + "/head_rgbd_sensor_link/Camera", "Camera"))
         xform_api = UsdGeom.XformCommonAPI(rgbd_camera_prim)
         xform_api.SetRotate((180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
-        rgbd_camera_prim.GetHorizontalApertureAttr().Set(21)
-        rgbd_camera_prim.GetVerticalApertureAttr().Set(16)
+        rgbd_camera_prim.GetHorizontalApertureAttr().Set(640 * 0.003)
+        rgbd_camera_prim.GetVerticalApertureAttr().Set(480 * 0.003)
         rgbd_camera_prim.GetProjectionAttr().Set("perspective")
-        rgbd_camera_prim.GetFocalLengthAttr().Set(24)
+        rgbd_camera_prim.GetFocalLengthAttr().Set(554.382712823 * 0.003)  #  (640/2) / tan(1.047/2)
         rgbd_camera_prim.GetFocusDistanceAttr().Set(400)
 
         # Creating a Camera prim
         hand_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim('/World' + self.prefix + "/hand_camera_frame/Camera", "Camera"))
         xform_api = UsdGeom.XformCommonAPI(hand_camera_prim)
         xform_api.SetRotate((180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
-        hand_camera_prim.GetHorizontalApertureAttr().Set(21)
-        hand_camera_prim.GetVerticalApertureAttr().Set(16)
+        hand_camera_prim.GetHorizontalApertureAttr().Set(640 * 0.003)
+        hand_camera_prim.GetVerticalApertureAttr().Set(480 * 0.003)
         hand_camera_prim.GetProjectionAttr().Set("perspective")
-        hand_camera_prim.GetFocalLengthAttr().Set(24)
+        hand_camera_prim.GetFocalLengthAttr().Set(205.469637099 * 0.003)  #  (640/2) / tan(2.0/2)
         hand_camera_prim.GetFocusDistanceAttr().Set(400)
 
         # Creating a action graph with ROS component nodes
@@ -435,8 +435,8 @@ class hsr:
                         ("createRenderProduct.outputs:renderProductPath", "cameraHelperInfo.inputs:renderProductPath"),
                     ],
                     og.Controller.Keys.SET_VALUES: [
-                        ("createRenderProduct.inputs:width", 640),
-                        ("createRenderProduct.inputs:height", 480),
+                        ("createRenderProduct.inputs:width", 1280),
+                        ("createRenderProduct.inputs:height", 960),
                         ("cameraHelperRgb.inputs:frameId", "head_l_stereo_camera_link"),
                         ("cameraHelperRgb.inputs:topicName", self.prefix + "/head_l_stereo_camera/image_rect_color"),
                         ("cameraHelperRgb.inputs:type", "rgb"),
@@ -467,8 +467,8 @@ class hsr:
                         ("createRenderProduct.outputs:renderProductPath", "cameraHelperInfo.inputs:renderProductPath"),
                     ],
                     og.Controller.Keys.SET_VALUES: [
-                        ("createRenderProduct.inputs:width", 640),
-                        ("createRenderProduct.inputs:height", 480),
+                        ("createRenderProduct.inputs:width", 1280),
+                        ("createRenderProduct.inputs:height", 960),
                         ("cameraHelperRgb.inputs:frameId", "head_r_stereo_camera_link"),
                         ("cameraHelperRgb.inputs:topicName", self.prefix + "/head_r_stereo_camera/image_rect_color"),
                         ("cameraHelperRgb.inputs:type", "rgb"),
