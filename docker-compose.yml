@@ -38,5 +38,7 @@ services:
       - ${HOME}/.hsr-omniverse/cache/pip:/root/.cache/pip:rw
       - ${HOME}/.hsr-omniverse/cache/glcache:/root/.cache/nvidia/GLCache:rw
       - ${HOME}/.hsr-omniverse/cache/computecache:/root/.nv/ComputeCache:rw
+      - ${HOME}/.hsr-omniverse/cache/data:/root/.local/share/ov/data:rw
+      - ${HOME}/.hsr-omniverse/logs:/root/.nvidia-omniverse/logs:rw
     depends_on:
       - ros
