@@ -12,6 +12,7 @@ import omni.ui
 from omni.isaac.core import SimulationContext
 from omni.isaac.core.utils import viewports, stage, nucleus
 import omni.kit.commands
+from omni.isaac.version import get_version
 import rosgraph
 import hsr
 
@@ -24,7 +25,7 @@ if not rosgraph.is_master_online():
 viewports.set_camera_view(eye=np.array([1.2, 1.2, 0.8]), target=np.array([0, 0, 0.5]))
 
 # Loading the simple_room environment
-assets_root_path = nucleus.get_assets_root_path()
+assets_root_path = "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/" + get_version()[0]  # nucleus.get_assets_root_path()
 BACKGROUND_STAGE_PATH = "/background"
 #BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Room/simple_room.usd"
 BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Warehouse/warehouse.usd"

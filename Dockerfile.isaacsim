@@ -4,15 +4,33 @@
 
 FROM ros:noetic-ros-core-focal AS ros
 
-FROM nvcr.io/nvidia/isaac-sim:2022.2.1
+FROM nvcr.io/nvidia/isaac-sim:2023.1.1 AS isaac-sim
+
+FROM nvidia/cudagl:11.4.2-base-ubuntu20.04
 
 SHELL ["/bin/bash", "-c"]
 
 ENV DEBIAN_FRONTEND noninteractive
 
 RUN apt update && \
-    apt install -y curl && \
-    apt clean
+    apt install -y --no-install-recommends \
+    curl \
+    wget \
+    libatomic1 \
+    libegl1 \
+    libglu1-mesa \
+    libgomp1 \
+    libsm6 \
+    libxi6 \
+    libxrandr2 \
+    libxt6 \
+    libfreetype-dev \
+    libfontconfig1 \
+    openssl \
+    libssl1.1 \
+    vulkan-utils \
+    && apt -y autoremove \
+    && apt clean autoclean
 
 # install ROS dependencies
 ENV ROS_DISTRO noetic
@@ -44,6 +62,12 @@ RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
     catkin build && \
     cd / && \
     rm -rf /ws
+
+COPY --from=isaac-sim /isaac-sim /isaac-sim
+RUN mkdir -p /root/.nvidia-omniverse/config
+COPY --from=isaac-sim /root/.nvidia-omniverse/config /root/.nvidia-omniverse/config
+WORKDIR /isaac-sim
+
 RUN /isaac-sim/python.sh -m pip install rospkg
 
 RUN mkdir /app
