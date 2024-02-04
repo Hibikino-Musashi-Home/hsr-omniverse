@@ -274,8 +274,6 @@ class hsr:
         self.create_lidar()
 
         self.create_imu()
-        self._if_imu = _sensor.acquire_imu_sensor_interface()
-        self.imu_pub = rospy.Publisher(self.prefix + '/base_imu/data', Imu, queue_size=5)
 
         self.laserscan_pose_sub = rospy.Subscriber(self.prefix + '/laser_scan_matcher/pose', PoseStamped, self.on_laserscan_pose)
         self.laser_odom_pub = rospy.Publisher(self.prefix + '/laser_odom', Odometry, queue_size=5)
@@ -609,6 +607,37 @@ class hsr:
             parent=None,
             sensor_period=-1
         )
+        (self.ros_imu, _, _, _) = og.Controller.edit(
+            {
+                "graph_path": "/imu_sensor",
+                "evaluator_name": "execution",
+            },
+            {
+                og.Controller.Keys.CREATE_NODES: [
+                    ("OnTick", "omni.graph.action.OnPlaybackTick"),
+                    ("readSimulationTime", "omni.isaac.core_nodes.IsaacReadSimulationTime"),
+                    ("readImu", "omni.isaac.sensor.IsaacReadIMU"),
+                    ("publishImu", "omni.isaac.ros_bridge.ROS1PublishImu"),
+                ],
+                og.Controller.Keys.CONNECT: [
+                    ("OnTick.outputs:tick", "readImu.inputs:execIn"),
+                    ("readImu.outputs:execOut", "publishImu.inputs:execIn"),
+                    ("readSimulationTime.outputs:simulationTime", "publishImu.inputs:timeStamp"),
+                    ("readImu.outputs:linAcc", "publishImu.inputs:linearAcceleration"),
+                    ("readImu.outputs:angVel", "publishImu.inputs:angularVelocity"),
+                    ("readImu.outputs:orientation", "publishImu.inputs:orientation"),
+                ],
+                og.Controller.Keys.SET_VALUES: [
+                    ("publishImu.inputs:frameId", "base_imu_frame"),
+                    ("publishImu.inputs:topicName", self.prefix + '/base_imu/data'),
+                ],
+            },
+        )
+        set_targets(
+            prim=stage.get_current_stage().GetPrimAtPath("/imu_sensor/readImu"),
+            attribute="inputs:imuPrim",
+            target_prim_paths=['/World' + self.prefix + '/base_imu_frame/Imu_Sensor'],
+        )
 
     def create_force_sensor(self) -> None:
         prim = stage.get_current_stage().GetPrimAtPath('/World' + self.prefix + '/wrist_ft_sensor_frame')
@@ -746,21 +775,21 @@ class hsr:
             0, 0, 0, 0, 100000.0, 0,
             0, 0, 0, 0, 0, 1000.0,
         ]
-        if self.imu_reading:
-            odom.twist.twist.linear.x = self.imu_reading.lin_acc_x  # TODO: convert to velocity
-            odom.twist.twist.linear.y = self.imu_reading.lin_acc_y
-            odom.twist.twist.linear.z = self.imu_reading.lin_acc_z
-            odom.twist.twist.angular.x = self.imu_reading.ang_vel_x
-            odom.twist.twist.angular.y = self.imu_reading.ang_vel_y
-            odom.twist.twist.angular.z = self.imu_reading.ang_vel_z
-        odom.twist.covariance = [
-            0.001, 0, 0, 0, 0, 0,
-            0, 0.001, 0, 0, 0, 0,
-            0, 0, 100000.0, 0, 0, 0,
-            0, 0, 0, 100000.0, 0, 0,
-            0, 0, 0, 0, 100000.0, 0,
-            0, 0, 0, 0, 0, 1000.0,
-        ]
+        #if self.imu_reading:
+        #    odom.twist.twist.linear.x = self.imu_reading.lin_acc_x  # TODO: convert to velocity
+        #    odom.twist.twist.linear.y = self.imu_reading.lin_acc_y
+        #    odom.twist.twist.linear.z = self.imu_reading.lin_acc_z
+        #    odom.twist.twist.angular.x = self.imu_reading.ang_vel_x
+        #    odom.twist.twist.angular.y = self.imu_reading.ang_vel_y
+        #    odom.twist.twist.angular.z = self.imu_reading.ang_vel_z
+        #odom.twist.covariance = [
+        #    0.001, 0, 0, 0, 0, 0,
+        #    0, 0.001, 0, 0, 0, 0,
+        #    0, 0, 100000.0, 0, 0, 0,
+        #    0, 0, 0, 100000.0, 0, 0,
+        #    0, 0, 0, 0, 100000.0, 0,
+        #    0, 0, 0, 0, 0, 1000.0,
+        #]
         self.laser_odom_pub.publish(odom)
 
         self.odometry_.x = msg.pose.position.x
@@ -914,22 +943,6 @@ class hsr:
         self.dc.set_dof_velocity_target(self.left_wheel_ptr, jcmd.vel_wheel_l)
         self.dc.set_dof_velocity_target(self.right_wheel_ptr, jcmd.vel_wheel_r)
         self.dc.set_dof_velocity_target(self.roll_ptr, jcmd.vel_steer)
-
-        self.imu_reading = self._if_imu.get_sensor_sim_reading('/World' + self.prefix + '/base_imu_frame/Imu_Sensor')
-        imu = Imu()
-        imu.header.stamp = rospy.Time(self.simulation_context.current_time)
-        imu.header.frame_id = 'base_imu_frame'
-        imu.orientation.x = self.imu_reading.orientation[0]
-        imu.orientation.y = self.imu_reading.orientation[1]
-        imu.orientation.z = self.imu_reading.orientation[2]
-        imu.orientation.w = self.imu_reading.orientation[3]
-        imu.angular_velocity.x = self.imu_reading.ang_vel_x
-        imu.angular_velocity.y = self.imu_reading.ang_vel_y
-        imu.angular_velocity.z = self.imu_reading.ang_vel_z
-        imu.linear_acceleration.x = self.imu_reading.lin_acc_x
-        imu.linear_acceleration.y = self.imu_reading.lin_acc_y
-        imu.linear_acceleration.z = self.imu_reading.lin_acc_z
-        self.imu_pub.publish(imu)
 
         #force_readings = self.robots._physics_view.get_force_sensor_forces()
         #print(force_readings)
