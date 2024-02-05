@@ -33,7 +33,7 @@ services:
     volumes:
       - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
       - /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
-      - ${HOME}/.hsr-omniverse/cache/kit:/isaac-sim/kit/cache/Kit:rw
+      - ${HOME}/.hsr-omniverse/cache/kit:/isaac-sim/kit/cache:rw
       - ${HOME}/.hsr-omniverse/cache/ov:/root/.cache/ov:rw
       - ${HOME}/.hsr-omniverse/cache/pip:/root/.cache/pip:rw
       - ${HOME}/.hsr-omniverse/cache/glcache:/root/.cache/nvidia/GLCache:rw
