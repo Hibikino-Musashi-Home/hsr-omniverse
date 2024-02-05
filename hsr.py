@@ -21,7 +21,7 @@ from omni.isaac.sensor import _sensor
 import rospy
 import tf.transformations
 import actionlib
-from geometry_msgs.msg import Twist, PoseStamped, Quaternion
+from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped
 from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryActionGoal, FollowJointTrajectoryGoal, GripperCommandAction, GripperCommandActionGoal
 from actionlib_msgs.msg import GoalStatusArray, GoalStatus, GoalID
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -279,8 +279,8 @@ class hsr:
         self.laser_odom_pub = rospy.Publisher(self.prefix + '/laser_odom', Odometry, queue_size=5)
         self.base_odom_pub = rospy.Publisher(self.prefix + '/base_controller/odom', Odometry, queue_size=5)
 
-        self.create_force_sensor()
-        #self.robots = ArticulationView(prim_paths_expr=self.prefix, name="hsr_view")
+        self.robots = ArticulationView(prim_paths_expr="/World" + self.prefix, name="hsr_view")
+        self.ft_sensor_pub = rospy.Publisher(self.prefix + '/wrist_wrench/raw', WrenchStamped, queue_size=5)
 
         # dynamic control can also be used to interact with the imported urdf.
         self.dc = _dynamic_control.acquire_dynamic_control_interface()
@@ -639,17 +639,6 @@ class hsr:
             target_prim_paths=['/World' + self.prefix + '/base_imu_frame/Imu_Sensor'],
         )
 
-    def create_force_sensor(self) -> None:
-        prim = stage.get_current_stage().GetPrimAtPath('/World' + self.prefix + '/wrist_ft_sensor_frame')
-        omni.kit.commands.execute(
-            'AddPhysicsComponent',
-            usd_prim=prim,
-            component='ForceAPI')
-        omni.kit.commands.execute(
-            'ApplyAPISchema',
-            api=PhysxSchema.PhysxForceAPI,
-            prim=prim)
-
     def create_lidar(self) -> None:
         _, sensor = omni.kit.commands.execute(
             'RangeSensorCreateLidar',
@@ -844,6 +833,7 @@ class hsr:
             self.left_wheel_ptr = self.dc.find_articulation_dof(self.art, "base_l_drive_wheel_joint")
             self.right_wheel_ptr = self.dc.find_articulation_dof(self.art, "base_r_drive_wheel_joint")
             self.roll_ptr = self.dc.find_articulation_dof(self.art, "base_roll_joint")
+            self.robots.initialize()
 
         self.dc.wake_up_articulation(self.art)
 
@@ -944,8 +934,17 @@ class hsr:
         self.dc.set_dof_velocity_target(self.right_wheel_ptr, jcmd.vel_wheel_r)
         self.dc.set_dof_velocity_target(self.roll_ptr, jcmd.vel_steer)
 
-        #force_readings = self.robots._physics_view.get_force_sensor_forces()
-        #print(force_readings)
+        force_readings = self.robots.get_measured_joint_forces(joint_indices=[self.robots._metadata.joint_indices['wrist_ft_sensor_frame_joint'] + 1,])
+        wrench = WrenchStamped()
+        wrench.header.stamp = rospy.Time(self.simulation_context.current_time)
+        wrench.header.frame_id = "wrist_ft_sensor_frame"
+        wrench.wrench.force.x = force_readings[0][0][0]
+        wrench.wrench.force.y = force_readings[0][0][1]
+        wrench.wrench.force.z = force_readings[0][0][2]
+        wrench.wrench.torque.x = force_readings[0][0][3]
+        wrench.wrench.torque.y = force_readings[0][0][4]
+        wrench.wrench.torque.z = force_readings[0][0][5]
+        self.ft_sensor_pub.publish(wrench)
 
         self.arm_trajectory_action_server.step(dt=dt)
         self.head_trajectory_action_server.step(dt=dt)
