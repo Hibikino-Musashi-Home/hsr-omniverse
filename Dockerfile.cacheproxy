@@ -1,0 +1,26 @@
+FROM alpine
+RUN apk add --no-cache squid
+
+RUN echo -e "\
+http_access allow localhost\n\
+http_access deny all\n\
+http_port 3128\n\
+cache_effective_user squid\n\
+cache_dir ufs /var/spool/squid 200 16 256\n\
+pid_filename none\n\
+cache_log stdio:/dev/stdout\n\
+access_log stdio:/dev/stdout\n\
+logfile_rotate 0\n\
+cache_mem 0 MB\n\
+cache_store_log none\n\
+client_persistent_connections off\n\
+server_persistent_connections off\n\
+" > /etc/squid/squid.conf
+
+RUN mkdir -p /var/spool/squid && \
+    chown -R squid:squid /var/spool/squid && \
+    /usr/sbin/squid -N -z
+
+EXPOSE 3128
+USER squid
+CMD /usr/sbin/squid -N 0

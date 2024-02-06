@@ -16,6 +16,11 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=graphics
     security_opt:
       - seccomp:unconfined
+  cacheproxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.cacheproxy
+    network_mode: host
   isaacsim:
     build:
       context: .
@@ -30,6 +35,7 @@ services:
     environment:
       - DISPLAY
       - ACCEPT_EULA=Y
+      - http_proxy=http://127.0.0.1:3128
     volumes:
       - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
       - /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
@@ -42,3 +48,4 @@ services:
       - ${HOME}/.hsr-omniverse/logs:/root/.nvidia-omniverse/logs:rw
     depends_on:
       - ros
+      - cacheproxy
