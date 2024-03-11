@@ -12,7 +12,7 @@ services:
     runtime: nvidia
     environment:
       - DISPLAY
-      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=1
       - NVIDIA_DRIVER_CAPABILITIES=graphics
     security_opt:
       - seccomp:unconfined
@@ -36,16 +36,18 @@ services:
       - DISPLAY
       - ACCEPT_EULA=Y
       - http_proxy=http://127.0.0.1:3128
+      - CUDA_VISIBLE_DEVICES=1
     volumes:
       - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
       - /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
-      - ${HOME}/.hsr-omniverse/cache/kit:/isaac-sim/kit/cache:rw
-      - ${HOME}/.hsr-omniverse/cache/ov:/root/.cache/ov:rw
-      - ${HOME}/.hsr-omniverse/cache/pip:/root/.cache/pip:rw
-      - ${HOME}/.hsr-omniverse/cache/glcache:/root/.cache/nvidia/GLCache:rw
-      - ${HOME}/.hsr-omniverse/cache/computecache:/root/.nv/ComputeCache:rw
-      - ${HOME}/.hsr-omniverse/cache/data:/root/.local/share/ov/data:rw
-      - ${HOME}/.hsr-omniverse/logs:/root/.nvidia-omniverse/logs:rw
+      - /data/hsr-omniverse/cache/kit:/isaac-sim/kit/cache:rw
+      - /data/hsr-omniverse/cache/ov:/root/.cache/ov:rw
+      - /data/hsr-omniverse/cache/pip:/root/.cache/pip:rw
+      - /data/hsr-omniverse/cache/glcache:/root/.cache/nvidia/GLCache:rw
+      - /data/hsr-omniverse/cache/computecache:/root/.nv/ComputeCache:rw
+      - /data/hsr-omniverse/cache/data:/root/.local/share/ov/data:rw
+      - /data/hsr-omniverse/logs:/root/.nvidia-omniverse/logs:rw
     depends_on:
       - ros
       - cacheproxy
+      
