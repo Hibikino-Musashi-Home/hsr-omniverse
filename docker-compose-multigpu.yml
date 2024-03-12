@@ -12,7 +12,7 @@ services:
     runtime: nvidia
     environment:
       - DISPLAY
-      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=1
       - NVIDIA_DRIVER_CAPABILITIES=graphics
     security_opt:
       - seccomp:unconfined
@@ -36,7 +36,7 @@ services:
       - DISPLAY
       - ACCEPT_EULA=Y
       - http_proxy=http://127.0.0.1:3128
-      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=1
     volumes:
       - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
       - /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
