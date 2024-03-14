@@ -1,5 +1,10 @@
 FROM alpine
-RUN apk add --no-cache squid
+
+RUN apk add \
+      --no-cache \
+      --repository http://dl-cdn.alpinelinux.org/alpine/v3.19/main \
+      ca-certificates \
+      squid
 
 RUN echo -e "\
 http_access allow localhost\n\
