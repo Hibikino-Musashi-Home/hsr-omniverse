@@ -7,29 +7,41 @@ from omni.isaac.kit import SimulationApp
 kit = SimulationApp({"renderer": "RayTracedLighting", "headless": False})
 kit.set_setting("/app/extensions/installUntrustedExtensions", True)
 
+import sys
 import numpy as np
 import omni.ui
 from omni.isaac.core import SimulationContext
 from omni.isaac.core.utils import viewports, stage, nucleus
+from omni.isaac.core.utils.prims import create_prim
 import omni.kit.commands
 from omni.isaac.version import get_version
-import rosgraph
 import hsr
 
-
-if not rosgraph.is_master_online():
-    print("Please run roscore before executing this script")
-    kit.close()
-    exit()
+try:
+    import rosgraph
+    if not rosgraph.is_master_online():
+        print("Please run roscore before executing this script")
+        kit.close()
+        exit()
+except ImportError:
+    pass
 
 viewports.set_camera_view(eye=np.array([1.2, 1.2, 0.8]), target=np.array([0, 0, 0.5]))
 
 # Loading the simple_room environment
-assets_root_path = "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/" + get_version()[0]  # nucleus.get_assets_root_path()
+assets_root_path = "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/" + get_version()[0]
 BACKGROUND_STAGE_PATH = "/background"
 #BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Room/simple_room.usd"
 BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+#BACKGROUND_USD_PATH = "/Isaac/Environments/Hospital/hospital.usd"
+#BACKGROUND_USD_PATH = "/Isaac/Environments/Office/office.usd"
+
 stage.add_reference_to_stage(assets_root_path + BACKGROUND_USD_PATH, BACKGROUND_STAGE_PATH)
+
+for i, o in enumerate(['003_cracker_box', '004_sugar_box', '005_tomato_soup_can', '006_mustard_bottle']):
+    path = f'/ycb_{o}'
+    create_prim(prim_path=path, prim_type="Xform", position=[0.3, 0.0, 2.0 + 0.2 * i])
+    stage.add_reference_to_stage(assets_root_path + f'/Isaac/Props/YCB/Axis_Aligned_Physics/{o}.usd', path)
 
 _hsr = hsr.hsr()
 
