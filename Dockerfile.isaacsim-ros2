@@ -1,0 +1,70 @@
+# Copyright (c) 2023, Toyota Motor Corporation
+# Copyright (c) 2023, MID Academic Promotions, Inc.
+# All rights reserved.
+
+FROM ros:humble-ros-core-jammy AS ros
+
+FROM nvcr.io/nvidia/isaac-sim:2023.1.1
+
+SHELL ["/bin/bash", "-c"]
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt update && \
+    apt install -y --no-install-recommends \
+    curl \
+    wget \
+    && apt -y autoremove \
+    && apt clean autoclean
+
+# install ROS dependencies
+ENV ROS_DISTRO humble
+COPY --from=ros /ros_entrypoint.sh /
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg
+RUN echo "deb [arch=amd64 signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu jammy main" > /etc/apt/sources.list.d/ros2.list
+RUN apt update && \
+    apt install -y \
+    git g++ make python-is-python3 python3-pip \
+    python3-colcon-common-extensions \
+    ros-humble-rclpy \
+    ros-humble-rosidl-default-generators \
+    ros-humble-tf-transformations \
+    ros-humble-tf2 \
+    ros-humble-tf2-msgs \
+    ros-humble-actionlib-msgs \
+    ros-humble-geometry-msgs \
+    ros-humble-control-msgs \
+    ros-humble-trajectory-msgs \
+    ros-humble-sensor-msgs \
+    ros-humble-nav-msgs \
+    ros-humble-vision-msgs \
+    && \
+    apt clean
+RUN /isaac-sim/python.sh -m pip install transforms3d
+RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
+    mkdir -p /ws/src && \
+    cd /ws/src && \
+    git clone -b foxy https://github.com/hsr-project/tmc_control_msgs.git && \
+    cd .. && \
+    colcon build
+
+RUN curl -sSL https://raw.githubusercontent.com/NVIDIA-Omniverse/IsaacSim-ros_workspaces/main/humble_ws/fastdds.xml -o /fastdds.xml
+
+ENV FASTRTPS_DEFAULT_PROFILES_FILE /fastdds.xml
+
+WORKDIR /isaac-sim
+
+RUN mkdir /app
+WORKDIR /app
+ADD hsr.py /app/hsr.py
+ADD scheduler.py /app/scheduler.py
+ADD sample-ros.py /app/sample-ros.py
+ADD usd /app/usd
+
+ENV NVIDIA_VISIBLE_DEVICES \
+        ${NVIDIA_VISIBLE_DEVICES:-all}
+ENV NVIDIA_DRIVER_CAPABILITIES all
+
+ENTRYPOINT [ "/ros_entrypoint.sh" ]
+
+CMD [ "/isaac-sim/python.sh", "/app/sample-ros.py"]

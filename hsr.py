@@ -18,181 +18,214 @@ from omni.isaac.core.materials.physics_material import PhysicsMaterial
 import omni.graph.core as og
 import omni.replicator.core as rep
 from omni.isaac.sensor import _sensor
-import rospy
-import tf.transformations
-import actionlib
-from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped
-from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryActionGoal, FollowJointTrajectoryGoal, GripperCommandAction, GripperCommandActionGoal
-from actionlib_msgs.msg import GoalStatusArray, GoalStatus, GoalID
-from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-from sensor_msgs.msg import JointState, Imu
-from nav_msgs.msg import Odometry
-from tmc_control_msgs.msg import GripperApplyEffortAction, GripperApplyEffortResult, GripperApplyEffortFeedback
 
-# enable ROS bridge extension
-extensions.enable_extension("omni.isaac.ros_bridge")
+is_ros2 = False
+try:
+    import rospy
+    import tf.transformations
+    import actionlib
+    from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped
+    from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryActionGoal, FollowJointTrajectoryGoal, GripperCommandAction, GripperCommandActionGoal
+    from actionlib_msgs.msg import GoalStatusArray, GoalStatus, GoalID
+    from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+    from sensor_msgs.msg import JointState, Imu
+    from nav_msgs.msg import Odometry
+    from tmc_control_msgs.msg import GripperApplyEffortAction, GripperApplyEffortResult, GripperApplyEffortFeedback
+    def quaternion_from_euler(r, p, y):
+        return tf.transformations.quaternion_from_euler(r, p, y)
+    def euler_from_quaternion(x, y, z, w):
+        return tf.transformations.euler_from_quaternion((x, y, z, w))
+    extensions.enable_extension("omni.isaac.ros_bridge")
+except ImportError:
+    is_ros2 = True
+    import rclpy
+    import rclpy.node
+    import rclpy.qos
+    import rclpy.time
+    from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped
+    from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+    from sensor_msgs.msg import JointState, Imu
+    from nav_msgs.msg import Odometry
+    import tf_transformations
+    def quaternion_from_euler(r, p, y):
+        return tf_transformations.quaternion_from_euler(r, p, y)
+    def euler_from_quaternion(x, y, z, w):
+        return tf_transformations.euler_from_quaternion((x, y, z, w))
+    extensions.enable_extension("omni.isaac.ros2_bridge")
+
 extensions.enable_extension("omni.isaac.range_sensor")
 extensions.enable_extension("omni.isaac.debug_draw")
-extensions.enable_extension("semu.robotics.ros_bridge")
-
-from semu.robotics.ros_bridge.ogn.nodes.OgnROS1ActionFollowJointTrajectory import InternalState as semuInternalState
-from semu.robotics.ros_bridge.ogn.nodes.OgnROS1ActionGripperCommand import InternalState as semuGripperInternalState
 
 
-class odom_trajectory_action_server(semuInternalState):
-    def _init_articulation(self) -> None:
-        # get articulation
-        path = self.articulation_path
-        self._articulation = self.dci.get_articulation(path)
-        if self._articulation == _dynamic_control.INVALID_HANDLE:
-            print("[Warning][semu.robotics.ros_bridge] ROS1 FollowJointTrajectory: {} is not an articulation".format(path))
-            return
-        for dof_name in ['odom_x', 'odom_y', 'odom_t']:
-            self._joints[dof_name] = 0.0
-        self._odometry = None
-        self._remaining_start_time = None
-
-    def _set_joint_position(self, name: str, target_position: float) -> None:
-        self._joints[name] = target_position
-
-    def _get_joint_position(self, name: str) -> float:
-        return self._joints[name]
-
-    def step(self, dt: float) -> None:
-        if self._action_goal is not None and self._action_goal_handle is not None:
-            # end of trajectory
-            if self._odometry is not None and self._action_point_index >= len(self._action_goal.trajectory.points):
-                diff = 0.0
-                diff += abs(self._get_joint_position('odom_x') - self._odometry.x)
-                diff += abs(self._get_joint_position('odom_y') - self._odometry.y)
-                diff += abs(self._get_joint_position('odom_t') - self._odometry.ang)
-                # rospy.loginfo('omni trajectory remaining: %f', diff)
-                if self._remaining_start_time is None:
-                    self._remaining_start_time = rospy.get_time()
-                time_passed = rospy.get_time() - self._remaining_start_time
-                if diff > 0.001 and time_passed < 5.0:
-                    return
-            else:
-                self._remaining_start_time = None
-        super().step(dt)
+def og_ros_node(name):
+    global is_ros2
+    if is_ros2:
+        return name.replace('.ros_bridge.', '.ros2_bridge.').replace('.ROS1', '.ROS2')
+    return name
 
 
-class arm_trajectory_action_server(semuInternalState):
-    def _set_joint_position(self, name: str, target_position: float) -> None:
-        if name == 'arm_lift_joint':
-            super()._set_joint_position('torso_lift_joint', target_position / 2.0)
-        if name in ['arm_flex_joint', 'arm_lift_joint', 'wrist_flex_joint', 'arm_roll_joint']:
-            target_position = -target_position
-        super()._set_joint_position(name, target_position)
+if is_ros2 is False:
+    extensions.enable_extension("semu.robotics.ros_bridge")
 
-    def _get_joint_position(self, name: str) -> float:
-        v = super()._get_joint_position(name)
-        if name in ['arm_flex_joint', 'arm_lift_joint', 'wrist_flex_joint', 'arm_roll_joint']:
-            return -v
-        return v
+    from semu.robotics.ros_bridge.ogn.nodes.OgnROS1ActionFollowJointTrajectory import InternalState as semuInternalState
+    from semu.robotics.ros_bridge.ogn.nodes.OgnROS1ActionGripperCommand import InternalState as semuGripperInternalState
 
 
-class head_trajectory_action_server(semuInternalState):
-    pass
+    class odom_trajectory_action_server(semuInternalState):
+        def _init_articulation(self) -> None:
+            # get articulation
+            path = self.articulation_path
+            self._articulation = self.dci.get_articulation(path)
+            if self._articulation == _dynamic_control.INVALID_HANDLE:
+                print("[Warning][semu.robotics.ros_bridge] ROS1 FollowJointTrajectory: {} is not an articulation".format(path))
+                return
+            for dof_name in ['odom_x', 'odom_y', 'odom_t']:
+                self._joints[dof_name] = 0.0
+            self._odometry = None
+            self._remaining_start_time = None
 
+        def _set_joint_position(self, name: str, target_position: float) -> None:
+            self._joints[name] = target_position
 
-class gripper_trajectory_action_server(semuInternalState):
-    def _set_joint_position(self, name: str, target_position: float) -> None:
-        if name == 'hand_motor_joint':
-            super()._set_joint_position('hand_l_proximal_joint', target_position)
-            super()._set_joint_position('hand_l_distal_joint', -target_position)
-            super()._set_joint_position('hand_r_proximal_joint', target_position)
-            super()._set_joint_position('hand_r_distal_joint', -target_position)
+        def _get_joint_position(self, name: str) -> float:
+            return self._joints[name]
 
-
-class gripper_command_action_server(semuGripperInternalState):
-    def __init__(self):
-        super().__init__()
-        self.gripper_joints_paths = [
-            '/World/hsrb/hand_palm_link/hand_l_proximal_joint',
-            '/World/hsrb/hand_l_mimic_distal_link/hand_l_distal_joint',
-            '/World/hsrb/hand_palm_link/hand_r_proximal_joint',
-            '/World/hsrb/hand_r_mimic_distal_link/hand_r_distal_joint'
-        ]
-
-    def _set_joint_position(self, name: str, target_position: float) -> None:
-        if name == 'hand_l_distal_joint':
-            target_position = -target_position
-        if name == 'hand_r_distal_joint':
-            target_position = -target_position
-        super()._set_joint_position(name, target_position)
-
-
-class gripper_apply_force_action_server(gripper_command_action_server):
-    def __init__(self):
-        super().__init__()
-        self._action_result_message = GripperApplyEffortResult()
-        self._action_feedback_message = GripperApplyEffortFeedback()
-        self._inverse_direction = False
-
-    def _get_joint_effort(self, name: str) -> float:
-        effort = self.dci.get_dof_state(self._joints[name]["dof"], _dynamic_control.STATE_EFFORT).effort
-        return effort
-
-    # most of this part is copied from:
-    #  https://github.com/Toni-SM/semu.robotics.ros_bridge/blob/main/exts/semu.robotics.ros_bridge/semu/robotics/ros_bridge/ogn/nodes/OgnROS1ActionGripperCommand.py
-    def step(self, dt: float) -> None:
-        if not self.initialized:
-            return
-        if not self._joints:
-            self._init_articulation()
-            return
-        if self._action_goal is not None and self._action_goal_handle is not None:
-            target_effort = self._action_goal.effort
-            if self._inverse_direction:
-                target_effort = -target_effort
-
-            self.dci.wake_up_articulation(self._articulation)
-            for name in self._joints:
-                if target_effort >= 0.0:
-                    self._set_joint_position(name, 0.0)
+        def step(self, dt: float) -> None:
+            if self._action_goal is not None and self._action_goal_handle is not None:
+                # end of trajectory
+                if self._odometry is not None and self._action_point_index >= len(self._action_goal.trajectory.points):
+                    diff = 0.0
+                    diff += abs(self._get_joint_position('odom_x') - self._odometry.x)
+                    diff += abs(self._get_joint_position('odom_y') - self._odometry.y)
+                    diff += abs(self._get_joint_position('odom_t') - self._odometry.ang)
+                    # rospy.loginfo('omni trajectory remaining: %f', diff)
+                    if self._remaining_start_time is None:
+                        self._remaining_start_time = rospy.get_time()
+                    time_passed = rospy.get_time() - self._remaining_start_time
+                    if diff > 0.001 and time_passed < 5.0:
+                        return
                 else:
-                    self._set_joint_position(name, math.pi)
+                    self._remaining_start_time = None
+            super().step(dt)
 
-            # compare target and current effort
-            effort = 0
-            effort_reached = True
-            for name in self._joints:
-                effort = self._get_joint_effort(name)
-                if abs(effort) - abs(target_effort) < 0.0:
-                    effort_reached = False
-                    break
-            if effort_reached:
-                self._action_goal = None
-                self._action_result_message.effort = effort
-                self._action_result_message.stalled = False
-                if self._action_goal_handle is not None:
-                    self._action_goal_handle.set_succeeded(self._action_result_message)
-                    self._action_goal_handle = None
+
+    class arm_trajectory_action_server(semuInternalState):
+        def _set_joint_position(self, name: str, target_position: float) -> None:
+            if name == 'arm_lift_joint':
+                super()._set_joint_position('torso_lift_joint', target_position / 2.0)
+            if name in ['arm_flex_joint', 'arm_lift_joint', 'wrist_flex_joint', 'arm_roll_joint']:
+                target_position = -target_position
+            super()._set_joint_position(name, target_position)
+
+        def _get_joint_position(self, name: str) -> float:
+            v = super()._get_joint_position(name)
+            if name in ['arm_flex_joint', 'arm_lift_joint', 'wrist_flex_joint', 'arm_roll_joint']:
+                return -v
+            return v
+
+
+    class head_trajectory_action_server(semuInternalState):
+        pass
+
+
+    class gripper_trajectory_action_server(semuInternalState):
+        def _set_joint_position(self, name: str, target_position: float) -> None:
+            if name == 'hand_motor_joint':
+                super()._set_joint_position('hand_l_proximal_joint', target_position)
+                super()._set_joint_position('hand_l_distal_joint', -target_position)
+                super()._set_joint_position('hand_r_proximal_joint', target_position)
+                super()._set_joint_position('hand_r_distal_joint', -target_position)
+
+
+    class gripper_command_action_server(semuGripperInternalState):
+        def __init__(self):
+            super().__init__()
+            self.gripper_joints_paths = [
+                '/World/hsrb/hand_palm_link/hand_l_proximal_joint',
+                '/World/hsrb/hand_l_mimic_distal_link/hand_l_distal_joint',
+                '/World/hsrb/hand_palm_link/hand_r_proximal_joint',
+                '/World/hsrb/hand_r_mimic_distal_link/hand_r_distal_joint'
+            ]
+
+        def _set_joint_position(self, name: str, target_position: float) -> None:
+            if name == 'hand_l_distal_joint':
+                target_position = -target_position
+            if name == 'hand_r_distal_joint':
+                target_position = -target_position
+            super()._set_joint_position(name, target_position)
+
+
+    class gripper_apply_force_action_server(gripper_command_action_server):
+        def __init__(self):
+            super().__init__()
+            self._action_result_message = GripperApplyEffortResult()
+            self._action_feedback_message = GripperApplyEffortFeedback()
+            self._inverse_direction = False
+
+        def _get_joint_effort(self, name: str) -> float:
+            effort = self.dci.get_dof_state(self._joints[name]["dof"], _dynamic_control.STATE_EFFORT).effort
+            return effort
+
+        # most of this part is copied from:
+        #  https://github.com/Toni-SM/semu.robotics.ros_bridge/blob/main/exts/semu.robotics.ros_bridge/semu/robotics/ros_bridge/ogn/nodes/OgnROS1ActionGripperCommand.py
+        def step(self, dt: float) -> None:
+            if not self.initialized:
                 return
-
-            # check if joints are moving (if not, results "stalled")
-            current_position_sum = 0
-            for name in self._joints:
-                position = self._get_joint_position(name)
-                current_position_sum += position
-            if abs(current_position_sum - self._action_previous_position_sum) < 1e-6:
-                self._action_goal = None
-                self._action_result_message.effort = effort
-                self._action_result_message.stalled = True
-                if self._action_goal_handle is not None:
-                    self._action_goal_handle.set_succeeded(self._action_result_message)
-                    self._action_goal_handle = None
+            if not self._joints:
+                self._init_articulation()
                 return
-            self._action_previous_position_sum = current_position_sum
+            if self._action_goal is not None and self._action_goal_handle is not None:
+                target_effort = self._action_goal.effort
+                if self._inverse_direction:
+                    target_effort = -target_effort
 
-            # check timeout
-            time_passed = rospy.get_time() - self._action_start_time
-            if time_passed >= self._action_timeout:
-                self._action_goal = None
-                if self._action_goal_handle is not None:
-                    self._action_goal_handle.set_aborted()
-                    self._action_goal_handle = None
+                self.dci.wake_up_articulation(self._articulation)
+                for name in self._joints:
+                    if target_effort >= 0.0:
+                        self._set_joint_position(name, 0.0)
+                    else:
+                        self._set_joint_position(name, math.pi)
+
+                # compare target and current effort
+                effort = 0
+                effort_reached = True
+                for name in self._joints:
+                    effort = self._get_joint_effort(name)
+                    if abs(effort) - abs(target_effort) < 0.0:
+                        effort_reached = False
+                        break
+                if effort_reached:
+                    self._action_goal = None
+                    self._action_result_message.effort = effort
+                    self._action_result_message.stalled = False
+                    if self._action_goal_handle is not None:
+                        self._action_goal_handle.set_succeeded(self._action_result_message)
+                        self._action_goal_handle = None
+                    return
+
+                # check if joints are moving (if not, results "stalled")
+                current_position_sum = 0
+                for name in self._joints:
+                    position = self._get_joint_position(name)
+                    current_position_sum += position
+                if abs(current_position_sum - self._action_previous_position_sum) < 1e-6:
+                    self._action_goal = None
+                    self._action_result_message.effort = effort
+                    self._action_result_message.stalled = True
+                    if self._action_goal_handle is not None:
+                        self._action_goal_handle.set_succeeded(self._action_result_message)
+                        self._action_goal_handle = None
+                    return
+                self._action_previous_position_sum = current_position_sum
+
+                # check timeout
+                time_passed = rospy.get_time() - self._action_start_time
+                if time_passed >= self._action_timeout:
+                    self._action_goal = None
+                    if self._action_goal_handle is not None:
+                        self._action_goal_handle.set_aborted()
+                        self._action_goal_handle = None
+
 
 class hsr_config:
     def __init__(self) -> None:
@@ -258,16 +291,29 @@ def inverse_dynamics(input: CartSpace, state: VehicleState) -> JointSpace:
 class hsr:
 
     def __init__(self, prefix='/hsrb', config=None) -> None:
+        global is_ros2
+
         if config is None:
             config = hsr_config()
 
         # rospy.init_node("isaac_sim_hsr", anonymous=True, disable_signals=True, log_level=rospy.ERROR)
+        if is_ros2:
+            rclpy.init()
+            self.ros2node = rclpy.node.Node("isaac_sim_hsr")
+            self.create_subscriber = lambda t, d, c: self.ros2node.create_subscription(d, t, c, qos_profile=rclpy.qos.qos_profile_sensor_data)
+            self.create_publisher = lambda t, d: self.ros2node.create_publisher(d, t, qos_profile=rclpy.qos.qos_profile_sensor_data)
+            self.get_ros_time = lambda t: rclpy.time.Time(seconds=t).to_msg()
+        else:
+            self.create_subscriber = lambda t, d, c: rospy.Subscriber(t, d, c)
+            self.create_publisher = lambda t, d: rospy.Publisher(t, d, queue_size=5)
+            self.get_ros_time = lambda t: rospy.Time(t)
 
         self.prefix = prefix
         self.simulation_context = None
         self.art = None
         #self.hsr = stage.add_reference_to_stage("https://cdn.statically.io/gh/hsr-project/hsrb_usd/main/hsrb4s.usd", "/World" + self.prefix)
-        self.hsr = stage.add_reference_to_stage(os.path.dirname(os.path.abspath(__file__)) + "/usd/hsrb/hsrb4s.usd", "/World" + self.prefix)
+        #self.hsr = stage.add_reference_to_stage(os.path.dirname(os.path.abspath(__file__)) + "/usd/hsrb4s/hsrb4s.usd", "/World" + self.prefix)
+        self.hsr = stage.add_reference_to_stage(os.path.dirname(os.path.abspath(__file__)) + "/usd/hsrc1s/hsrc1s.usd", "/World" + self.prefix)
         self.set_base_joint_and_material()
 
         self.create_cameras()
@@ -275,24 +321,24 @@ class hsr:
 
         self.create_imu()
 
-        self.laserscan_pose_sub = rospy.Subscriber(self.prefix + '/laser_scan_matcher/pose', PoseStamped, self.on_laserscan_pose)
-        self.laser_odom_pub = rospy.Publisher(self.prefix + '/laser_odom', Odometry, queue_size=5)
-        self.base_odom_pub = rospy.Publisher(self.prefix + '/base_controller/odom', Odometry, queue_size=5)
+        self.laserscan_pose_sub = self.create_subscriber(self.prefix + '/laser_scan_matcher/pose', PoseStamped, self.on_laserscan_pose)
+        self.laser_odom_pub = self.create_publisher(self.prefix + '/laser_odom', Odometry)
+        self.base_odom_pub = self.create_publisher(self.prefix + '/base_controller/odom', Odometry)
 
         self.robots = ArticulationView(prim_paths_expr="/World" + self.prefix, name="hsr_view")
-        self.ft_sensor_pub = rospy.Publisher(self.prefix + '/wrist_wrench/raw', WrenchStamped, queue_size=5)
+        self.ft_sensor_pub = self.create_publisher(self.prefix + '/wrist_wrench/raw', WrenchStamped)
 
         # dynamic control can also be used to interact with the imported urdf.
         self.dc = _dynamic_control.acquire_dynamic_control_interface()
 
         self.cmd_vel_msg = None
         self.last_cmd_vel_time = 0.0
-        rospy.Subscriber(self.prefix + "/command_velocity", Twist, self.on_cmd_vel)
+        self.create_subscriber(self.prefix + "/command_velocity", Twist, self.on_cmd_vel)
         self.odometry_ = BaseOdometry()
         self.vel_limit_steer_ = 8.0
         self.vel_limit_wheel_ = 8.0
 
-        self.joint_state_pub = rospy.Publisher(self.prefix + '/joint_states', JointState, queue_size=5)
+        self.joint_state_pub = self.create_publisher(self.prefix + '/joint_states', JointState)
 
         def init_action_server(srv, name, msg):
             srv.articulation_path = '/World' + self.prefix
@@ -333,26 +379,27 @@ class hsr:
                 srv.topic_interface = rospy.Subscriber(action_topic_name.replace('/follow_joint_trajectory', '/command'), JointTrajectory, command_topic_callback, (srv,) )
             srv.initialized = True
 
-        self.arm_trajectory_action_server = arm_trajectory_action_server()
-        init_action_server(self.arm_trajectory_action_server, 'arm_trajectory_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
+        if is_ros2 is False:
+            self.arm_trajectory_action_server = arm_trajectory_action_server()
+            init_action_server(self.arm_trajectory_action_server, 'arm_trajectory_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
 
-        self.head_trajectory_action_server = head_trajectory_action_server()
-        init_action_server(self.arm_trajectory_action_server, 'head_trajectory_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
+            self.head_trajectory_action_server = head_trajectory_action_server()
+            init_action_server(self.arm_trajectory_action_server, 'head_trajectory_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
 
-        self.odom_trajectory_action_server = odom_trajectory_action_server()
-        init_action_server(self.odom_trajectory_action_server, 'omni_base_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
+            self.odom_trajectory_action_server = odom_trajectory_action_server()
+            init_action_server(self.odom_trajectory_action_server, 'omni_base_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
 
-        self.gripper_trajectory_action_server = gripper_trajectory_action_server()
-        init_action_server(self.gripper_trajectory_action_server, 'gripper_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
+            self.gripper_trajectory_action_server = gripper_trajectory_action_server()
+            init_action_server(self.gripper_trajectory_action_server, 'gripper_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
 
-        self.gripper_apply_force_action_server = gripper_apply_force_action_server()
-        init_action_server(self.gripper_apply_force_action_server, 'gripper_controller/apply_force', GripperApplyEffortAction)
+            self.gripper_apply_force_action_server = gripper_apply_force_action_server()
+            init_action_server(self.gripper_apply_force_action_server, 'gripper_controller/apply_force', GripperApplyEffortAction)
 
-        #self.gripper_command_action_server = gripper_command_action_server()
-        #init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperCommandAction)
-        self.gripper_command_action_server = gripper_apply_force_action_server()
-        self.gripper_command_action_server._inverse_direction = True
-        init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperApplyEffortAction)
+            #self.gripper_command_action_server = gripper_command_action_server()
+            #init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperCommandAction)
+            self.gripper_command_action_server = gripper_apply_force_action_server()
+            self.gripper_command_action_server._inverse_direction = True
+            init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperApplyEffortAction)
 
     def create_cameras(self) -> None:
         # Creating a Camera prim
@@ -403,7 +450,7 @@ class hsr:
                     og.Controller.Keys.CREATE_NODES: [
                         ("OnImpulseEvent", "omni.graph.action.OnImpulseEvent"),
                         ("ReadSimTime", "omni.isaac.core_nodes.IsaacReadSimulationTime"),
-                        ("PublishClock", "omni.isaac.ros_bridge.ROS1PublishClock"),
+                        ("PublishClock", og_ros_node("omni.isaac.ros_bridge.ROS1PublishClock")),
                     ],
                     og.Controller.Keys.CONNECT: [
                         ("OnImpulseEvent.outputs:execOut", "PublishClock.inputs:execIn"),
@@ -423,8 +470,8 @@ class hsr:
                     og.Controller.Keys.CREATE_NODES: [
                         ("OnTick", "omni.graph.action.OnTick"),
                         ("createRenderProduct", "omni.isaac.core_nodes.IsaacCreateRenderProduct"),
-                        ("cameraHelperRgb", "omni.isaac.ros_bridge.ROS1CameraHelper"),
-                        ("cameraHelperInfo", "omni.isaac.ros_bridge.ROS1CameraHelper"),
+                        ("cameraHelperRgb", og_ros_node("omni.isaac.ros_bridge.ROS1CameraHelper")),
+                        ("cameraHelperInfo", og_ros_node("omni.isaac.ros_bridge.ROS1CameraHelper")),
                     ],
                     og.Controller.Keys.CONNECT: [
                         ("OnTick.outputs:tick", "createRenderProduct.inputs:execIn"),
@@ -454,8 +501,8 @@ class hsr:
                     og.Controller.Keys.CREATE_NODES: [
                         ("OnTick", "omni.graph.action.OnTick"),
                         ("createRenderProduct", "omni.isaac.core_nodes.IsaacCreateRenderProduct"),
-                        ("cameraHelperRgb", "omni.isaac.ros_bridge.ROS1CameraHelper"),
-                        ("cameraHelperInfo", "omni.isaac.ros_bridge.ROS1CameraHelper"),
+                        ("cameraHelperRgb", og_ros_node("omni.isaac.ros_bridge.ROS1CameraHelper")),
+                        ("cameraHelperInfo", og_ros_node("omni.isaac.ros_bridge.ROS1CameraHelper")),
                     ],
                     og.Controller.Keys.CONNECT: [
                         ("OnTick.outputs:tick", "createRenderProduct.inputs:execIn"),
@@ -486,10 +533,10 @@ class hsr:
                     og.Controller.Keys.CREATE_NODES: [
                         ("OnTick", "omni.graph.action.OnTick"),
                         ("createRenderProduct", "omni.isaac.core_nodes.IsaacCreateRenderProduct"),
-                        ("cameraHelperRgb", "omni.isaac.ros_bridge.ROS1CameraHelper"),
-                        ("cameraHelperInfo", "omni.isaac.ros_bridge.ROS1CameraHelper"),
-                        ("cameraHelperDepth", "omni.isaac.ros_bridge.ROS1CameraHelper"),
-                        ("cameraHelperDepthInfo", "omni.isaac.ros_bridge.ROS1CameraHelper"),
+                        ("cameraHelperRgb", og_ros_node("omni.isaac.ros_bridge.ROS1CameraHelper")),
+                        ("cameraHelperInfo", og_ros_node("omni.isaac.ros_bridge.ROS1CameraHelper")),
+                        ("cameraHelperDepth", og_ros_node("omni.isaac.ros_bridge.ROS1CameraHelper")),
+                        ("cameraHelperDepthInfo", og_ros_node("omni.isaac.ros_bridge.ROS1CameraHelper")),
                     ],
                     og.Controller.Keys.CONNECT: [
                         ("OnTick.outputs:tick", "createRenderProduct.inputs:execIn"),
@@ -529,8 +576,8 @@ class hsr:
                     og.Controller.Keys.CREATE_NODES: [
                         ("OnTick", "omni.graph.action.OnTick"),
                         ("createRenderProduct", "omni.isaac.core_nodes.IsaacCreateRenderProduct"),
-                        ("cameraHelperRgb", "omni.isaac.ros_bridge.ROS1CameraHelper"),
-                        ("cameraHelperInfo", "omni.isaac.ros_bridge.ROS1CameraHelper"),
+                        ("cameraHelperRgb", og_ros_node("omni.isaac.ros_bridge.ROS1CameraHelper")),
+                        ("cameraHelperInfo", og_ros_node("omni.isaac.ros_bridge.ROS1CameraHelper")),
                     ],
                     og.Controller.Keys.CONNECT: [
                         ("OnTick.outputs:tick", "createRenderProduct.inputs:execIn"),
@@ -617,7 +664,7 @@ class hsr:
                     ("OnTick", "omni.graph.action.OnPlaybackTick"),
                     ("readSimulationTime", "omni.isaac.core_nodes.IsaacReadSimulationTime"),
                     ("readImu", "omni.isaac.sensor.IsaacReadIMU"),
-                    ("publishImu", "omni.isaac.ros_bridge.ROS1PublishImu"),
+                    ("publishImu", og_ros_node("omni.isaac.ros_bridge.ROS1PublishImu")),
                 ],
                 og.Controller.Keys.CONNECT: [
                     ("OnTick.outputs:tick", "readImu.inputs:execIn"),
@@ -665,7 +712,7 @@ class hsr:
                     ("OnTick", "omni.graph.action.OnPlaybackTick"),
                     ("readSimulationTime", "omni.isaac.core_nodes.IsaacReadSimulationTime"),
                     ("readLidarBeams", "omni.isaac.range_sensor.IsaacReadLidarBeams"),
-                    ("publishLaserScan", "omni.isaac.ros_bridge.ROS1PublishLaserScan"),
+                    ("publishLaserScan", og_ros_node("omni.isaac.ros_bridge.ROS1PublishLaserScan")),
                 ],
                 og.Controller.Keys.CONNECT: [
                     ("OnTick.outputs:tick", "readLidarBeams.inputs:execIn"),
@@ -784,13 +831,12 @@ class hsr:
         self.odometry_.x = msg.pose.position.x
         self.odometry_.y = msg.pose.position.y
         q = msg.pose.orientation
-        self.odometry_.ang = tf.transformations.euler_from_quaternion((q.x, q.y, q.z, q.w))[2]
+        self.odometry_.ang = euler_from_quaternion(q.x, q.y, q.z, q.w)[2]
 
     def publish_joint_states(self):
         js = JointState()
-        js.header.stamp = rospy.Time(self.simulation_context.current_time)
+        js.header.stamp = self.get_ros_time(self.simulation_context.current_time)
         js.name = list(self._joints.keys())
-        js.position = []
         for n in js.name:
             (joint, joint_type, inv) = self._joints[n]
             st = self.dc.get_dof_state(joint, _dynamic_control.STATE_ALL)
@@ -804,9 +850,9 @@ class hsr:
             js.velocity.append(st.vel)
             js.effort.append(st.effort * 1000.0)
         js.name = js.name + ['odom_x', 'odom_y', 'odom_t']
-        js.position = js.position + [self.odometry_.x, self.odometry_.y, self.odometry_.ang]
-        js.velocity = js.velocity + [0, 0, 0]
-        js.effort = js.effort + [0, 0, 0]
+        js.position.extend([self.odometry_.x, self.odometry_.y, self.odometry_.ang])
+        js.velocity.extend([0, 0, 0])
+        js.effort.extend([0, 0, 0])
         self.joint_state_pub.publish(js)
 
     def onsimulationstart(self, simulation_context):
@@ -864,40 +910,40 @@ class hsr:
         self.odometry_.ang += diff_r
 
         odom = Odometry()
-        odom.header.stamp = rospy.Time(self.simulation_context.current_time)
+        odom.header.stamp = self.get_ros_time(self.simulation_context.current_time)
         odom.header.frame_id = "world"
         odom.child_frame_id = "base_footprint"
         odom.pose.pose.position.x = self.odometry_.x
         odom.pose.pose.position.y = self.odometry_.y
-        odom.pose.pose.position.z = 0
-        q = tf.transformations.quaternion_from_euler(0, 0, self.odometry_.ang)
-        odom.pose.pose.orientation = Quaternion(*q)
+        odom.pose.pose.position.z = 0.0
+        q = quaternion_from_euler(0, 0, self.odometry_.ang)
+        odom.pose.pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
         odom.pose.covariance = [
-            0.001, 0, 0, 0, 0, 0,
-            0, 0.001, 0, 0, 0, 0,
-            0, 0, 100000.0, 0, 0, 0,
-            0, 0, 0, 100000.0, 0, 0,
-            0, 0, 0, 0, 100000.0, 0,
-            0, 0, 0, 0, 0, 1000.0,
+            0.001, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.001, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 100000.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 100000.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 100000.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 1000.0,
         ]
         odom.twist.twist.linear.x = abs_dot_x
         odom.twist.twist.linear.y = abs_dot_y
-        odom.twist.twist.linear.z = 0
-        odom.twist.twist.angular.x = 0
-        odom.twist.twist.angular.y = 0
+        odom.twist.twist.linear.z = 0.0
+        odom.twist.twist.angular.x = 0.0
+        odom.twist.twist.angular.y = 0.0
         odom.twist.twist.angular.z = cartesian_param_.dot_r
         odom.twist.covariance = [
-            0.001, 0, 0, 0, 0, 0,
-            0, 0.001, 0, 0, 0, 0,
-            0, 0, 100000.0, 0, 0, 0,
-            0, 0, 0, 100000.0, 0, 0,
-            0, 0, 0, 0, 100000.0, 0,
-            0, 0, 0, 0, 0, 1000.0,
+            0.001, 0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.001, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 100000.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 100000.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 100000.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 1000.0,
         ]
         self.base_odom_pub.publish(odom)
 
         cmd = CartSpace()
-        if self.odom_trajectory_action_server._action_goal is not None:
+        if is_ros2 is False and self.odom_trajectory_action_server._action_goal is not None:
             self.odom_trajectory_action_server._odometry = self.odometry_
             cmd.dot_x = self.odom_trajectory_action_server._joints['odom_x'] - self.odometry_.x
             cmd.dot_y = self.odom_trajectory_action_server._joints['odom_y'] - self.odometry_.y
@@ -936,21 +982,22 @@ class hsr:
 
         force_readings = self.robots.get_measured_joint_forces(joint_indices=[self.robots._metadata.joint_indices['wrist_ft_sensor_frame_joint'] + 1,])
         wrench = WrenchStamped()
-        wrench.header.stamp = rospy.Time(self.simulation_context.current_time)
+        wrench.header.stamp = self.get_ros_time(self.simulation_context.current_time)
         wrench.header.frame_id = "wrist_ft_sensor_frame"
-        wrench.wrench.force.x = force_readings[0][0][0]
-        wrench.wrench.force.y = force_readings[0][0][1]
-        wrench.wrench.force.z = force_readings[0][0][2]
-        wrench.wrench.torque.x = force_readings[0][0][3]
-        wrench.wrench.torque.y = force_readings[0][0][4]
-        wrench.wrench.torque.z = force_readings[0][0][5]
+        wrench.wrench.force.x = float(force_readings[0][0][0])
+        wrench.wrench.force.y = float(force_readings[0][0][1])
+        wrench.wrench.force.z = float(force_readings[0][0][2])
+        wrench.wrench.torque.x = float(force_readings[0][0][3])
+        wrench.wrench.torque.y = float(force_readings[0][0][4])
+        wrench.wrench.torque.z = float(force_readings[0][0][5])
         self.ft_sensor_pub.publish(wrench)
 
-        self.arm_trajectory_action_server.step(dt=dt)
-        self.head_trajectory_action_server.step(dt=dt)
-        self.odom_trajectory_action_server.step(dt=dt)
-        self.gripper_trajectory_action_server.step(dt=dt)
-        self.gripper_apply_force_action_server.step(dt=dt)
-        self.gripper_command_action_server.step(dt=dt)
+        if is_ros2 is False:
+            self.arm_trajectory_action_server.step(dt=dt)
+            self.head_trajectory_action_server.step(dt=dt)
+            self.odom_trajectory_action_server.step(dt=dt)
+            self.gripper_trajectory_action_server.step(dt=dt)
+            self.gripper_apply_force_action_server.step(dt=dt)
+            self.gripper_command_action_server.step(dt=dt)
 
         self.prev_time = self.simulation_context.current_time
