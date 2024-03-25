@@ -312,8 +312,8 @@ class hsr:
         self.simulation_context = None
         self.art = None
         #self.hsr = stage.add_reference_to_stage("https://cdn.statically.io/gh/hsr-project/hsrb_usd/main/hsrb4s.usd", "/World" + self.prefix)
-        #self.hsr = stage.add_reference_to_stage(os.path.dirname(os.path.abspath(__file__)) + "/usd/hsrb4s/hsrb4s.usd", "/World" + self.prefix)
-        self.hsr = stage.add_reference_to_stage(os.path.dirname(os.path.abspath(__file__)) + "/usd/hsrc1s/hsrc1s.usd", "/World" + self.prefix)
+        self.hsr = stage.add_reference_to_stage(os.path.dirname(os.path.abspath(__file__)) + "/usd/hsrb/hsrb4s.usd", "/World" + self.prefix)
+        #self.hsr = stage.add_reference_to_stage(os.path.dirname(os.path.abspath(__file__)) + "/usd/hsrc1s/hsrc1s.usd", "/World" + self.prefix)
         self.set_base_joint_and_material()
 
         self.create_cameras()
