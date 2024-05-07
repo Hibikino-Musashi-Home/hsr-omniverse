@@ -1,5 +1,5 @@
 # HSR-Omniverse
-This repository explains how to configure your workstation and run the development environment to use HSR with NVIDIA Omniverse. They are two installation procedures: standalone and containerized.
+This repository explains how to configure your workstation and run the development environment to use HSR with NVIDIA Omniverse. There are two installation procedures: standalone and containerized.
 
 ## Standalone installation
 This section explains how to install and configure the libraries to use the HSR Omniverse environment natively on your workstation.
@@ -87,7 +87,7 @@ $ sudo apt-get update
 $ sudo apt-get install -y nvidia-container-toolkit
 $ sudo systemctl restart docker
 ```
-4. ***[Optional]*** Follow official NVIDIA procedure  
+4. ***[Optional]*** Follow the official NVIDIA procedure
 https://docs.omniverse.nvidia.com/isaacsim/latest/installation/install_container.html
 
 ### Build Docker image
@@ -97,29 +97,14 @@ $ git clone --recursive https://git.hsr.io/tmc/hsr-omniverse.git
 $ cd hsr-omniverse
 $ git submodule update --init --recursive
 ```
-2. Edit ```volume``` field in ```docker-compose.yml``` to fit your internal storage structure
+2. Edit the ```volume``` field in ```docker-compose.yml``` to fit your internal storage structure
 3. Build Docker image with Docker compose
 ```console
 $ docker compose build
 ```
-4. Edit Docker daemon and restart
-```console
-sudo gedit /etc/docker/daemon.json
-# Replace the content of the file with the following lines (including brackets) and save it
-{
-    "runtimes": {
-        "nvidia": {
-            "path": "nvidia-container-runtime",
-            "args": []
-        }
-    }
-}
-# Restart docker daemon
-sudo systemctl restart docker
-```
-5. Accept EULA:  
+4. Accept EULA:
 https://docs.omniverse.nvidia.com/platform/latest/common/NVIDIA_Omniverse_License_Agreement.html  
-6. Start Isaac Sim Docker container  
+5. Start Isaac Sim Docker container
 Open a new terminal (Terminal 1)
 ```console
 # Optional: Cancel local X display via TCP socket, especially if using SSH with X11 forwarding
@@ -129,7 +114,7 @@ $ xhost +local:root
 $ cd hsr-omniverse
 $ docker compose up
 ```
-7. Start Rviz visualization  
+6. Start Rviz visualization
 Open a new terminal (Terminal 2)
 ```console
 $ cd hsr-omniverse

@@ -9,7 +9,11 @@ services:
       dockerfile: Dockerfile.ros
     ipc: host
     network_mode: host
-    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
     environment:
       - DISPLAY
       - NVIDIA_VISIBLE_DEVICES=all
@@ -29,7 +33,11 @@ services:
     network_mode: host
     security_opt:
       - seccomp:unconfined
-    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
     devices:
       - /dev/dri:/dev/dri
     environment:
