@@ -3,6 +3,8 @@
 # All rights reserved.
 
 import os
+import sys
+import threading
 import math
 import omni.ui
 from omni.isaac.core import SimulationContext
@@ -43,9 +45,11 @@ except ImportError:
     import rclpy.qos
     import rclpy.time
     from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped
+    from control_msgs.action import FollowJointTrajectory, GripperCommand
     from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
     from sensor_msgs.msg import JointState, Imu
     from nav_msgs.msg import Odometry
+    from tmc_control_msgs.action import GripperApplyEffort
     import tf_transformations
     def quaternion_from_euler(r, p, y):
         return tf_transformations.quaternion_from_euler(r, p, y)
@@ -66,165 +70,181 @@ def og_ros_node(name):
 
 if is_ros2 is False:
     extensions.enable_extension("semu.robotics.ros_bridge")
-
     from semu.robotics.ros_bridge.ogn.nodes.OgnROS1ActionFollowJointTrajectory import InternalState as semuInternalState
     from semu.robotics.ros_bridge.ogn.nodes.OgnROS1ActionGripperCommand import InternalState as semuGripperInternalState
+else:  # ROS2
+    from ros2_bridge import RosControlFollowJointTrajectory as semuInternalState
+    from ros2_bridge import RosControllerGripperCommand as semuGripperInternalState
 
 
-    class odom_trajectory_action_server(semuInternalState):
-        def _init_articulation(self) -> None:
-            # get articulation
-            path = self.articulation_path
-            self._articulation = self.dci.get_articulation(path)
-            if self._articulation == _dynamic_control.INVALID_HANDLE:
-                print("[Warning][semu.robotics.ros_bridge] ROS1 FollowJointTrajectory: {} is not an articulation".format(path))
-                return
-            for dof_name in ['odom_x', 'odom_y', 'odom_t']:
-                self._joints[dof_name] = 0.0
-            self._odometry = None
-            self._remaining_start_time = None
+class odom_trajectory_action_server(semuInternalState):
+    def _init_articulation(self) -> None:
+        # get articulation
+        path = self.articulation_path
+        self._articulation = self.dci.get_articulation(path)
+        if self._articulation == _dynamic_control.INVALID_HANDLE:
+            print("[Warning] FollowJointTrajectory: {} is not an articulation".format(path))
+            return
+        for dof_name in ['odom_x', 'odom_y', 'odom_t']:
+            self._joints[dof_name] = 0.0
+        self._odometry = None
+        self._remaining_start_time = None
 
-        def _set_joint_position(self, name: str, target_position: float) -> None:
-            self._joints[name] = target_position
+    def _set_joint_position(self, name: str, target_position: float) -> None:
+        self._joints[name] = target_position
 
-        def _get_joint_position(self, name: str) -> float:
-            return self._joints[name]
+    def _get_joint_position(self, name: str) -> float:
+        return self._joints[name]
 
-        def step(self, dt: float) -> None:
-            if self._action_goal is not None and self._action_goal_handle is not None:
-                # end of trajectory
-                if self._odometry is not None and self._action_point_index >= len(self._action_goal.trajectory.points):
-                    diff = 0.0
-                    diff += abs(self._get_joint_position('odom_x') - self._odometry.x)
-                    diff += abs(self._get_joint_position('odom_y') - self._odometry.y)
-                    diff += abs(self._get_joint_position('odom_t') - self._odometry.ang)
-                    # rospy.loginfo('omni trajectory remaining: %f', diff)
-                    if self._remaining_start_time is None:
-                        self._remaining_start_time = rospy.get_time()
-                    time_passed = rospy.get_time() - self._remaining_start_time
-                    if diff > 0.001 and time_passed < 5.0:
-                        return
-                else:
-                    self._remaining_start_time = None
-            super().step(dt)
+    def step(self, dt: float) -> None:
+        if self._action_goal is not None and self._action_goal_handle is not None:
+            # end of trajectory
+            if self._odometry is not None and self._action_point_index >= len(self._action_goal.trajectory.points):
+                diff = 0.0
+                diff += abs(self._get_joint_position('odom_x') - self._odometry.x)
+                diff += abs(self._get_joint_position('odom_y') - self._odometry.y)
+                diff += abs(self._get_joint_position('odom_t') - self._odometry.ang)
+                # rospy.loginfo('omni trajectory remaining: %f', diff)
+                if self._remaining_start_time is None:
+                    self._remaining_start_time = rospy.get_time()
+                time_passed = rospy.get_time() - self._remaining_start_time
+                if diff > 0.001 and time_passed < 5.0:
+                    return
+            else:
+                self._remaining_start_time = None
+        super().step(dt)
 
+class arm_trajectory_action_server(semuInternalState):
+    def _set_joint_position(self, name: str, target_position: float) -> None:
+        if name == 'arm_lift_joint':
+            super()._set_joint_position('torso_lift_joint', target_position / 2.0)
+        if name in ['arm_flex_joint', 'arm_lift_joint', 'wrist_flex_joint', 'arm_roll_joint']:
+            target_position = -target_position
+        super()._set_joint_position(name, target_position)
 
-    class arm_trajectory_action_server(semuInternalState):
-        def _set_joint_position(self, name: str, target_position: float) -> None:
-            if name == 'arm_lift_joint':
-                super()._set_joint_position('torso_lift_joint', target_position / 2.0)
-            if name in ['arm_flex_joint', 'arm_lift_joint', 'wrist_flex_joint', 'arm_roll_joint']:
-                target_position = -target_position
-            super()._set_joint_position(name, target_position)
+    def _get_joint_position(self, name: str) -> float:
+        v = super()._get_joint_position(name)
+        if name in ['arm_flex_joint', 'arm_lift_joint', 'wrist_flex_joint', 'arm_roll_joint']:
+            return -v
+        return v
 
-        def _get_joint_position(self, name: str) -> float:
-            v = super()._get_joint_position(name)
-            if name in ['arm_flex_joint', 'arm_lift_joint', 'wrist_flex_joint', 'arm_roll_joint']:
-                return -v
-            return v
+class head_trajectory_action_server(semuInternalState):
+    pass
 
-
-    class head_trajectory_action_server(semuInternalState):
-        pass
-
-
-    class gripper_trajectory_action_server(semuInternalState):
-        def _set_joint_position(self, name: str, target_position: float) -> None:
-            if name == 'hand_motor_joint':
-                super()._set_joint_position('hand_l_proximal_joint', target_position)
-                super()._set_joint_position('hand_l_distal_joint', -target_position)
-                super()._set_joint_position('hand_r_proximal_joint', target_position)
-                super()._set_joint_position('hand_r_distal_joint', -target_position)
+class gripper_trajectory_action_server(semuInternalState):
+    def _set_joint_position(self, name: str, target_position: float) -> None:
+        if name == 'hand_motor_joint':
+            super()._set_joint_position('hand_l_proximal_joint', target_position)
+            super()._set_joint_position('hand_l_distal_joint', -target_position)
+            super()._set_joint_position('hand_r_proximal_joint', target_position)
+            super()._set_joint_position('hand_r_distal_joint', -target_position)
 
 
-    class gripper_command_action_server(semuGripperInternalState):
-        def __init__(self):
+class gripper_command_action_server(semuGripperInternalState):
+    def __init__(self, node=None, _dci=None):
+        if is_ros2 is False:
             super().__init__()
-            self.gripper_joints_paths = [
-                '/World/hsrb/hand_palm_link/hand_l_proximal_joint',
-                '/World/hsrb/hand_l_mimic_distal_link/hand_l_distal_joint',
-                '/World/hsrb/hand_palm_link/hand_r_proximal_joint',
-                '/World/hsrb/hand_r_mimic_distal_link/hand_r_distal_joint'
-            ]
+        else:
+            super().__init__(node, _dci)
+        self.gripper_joints_paths = [
+            '/World/hsrb/hand_palm_link/hand_l_proximal_joint',
+            '/World/hsrb/hand_l_mimic_distal_link/hand_l_distal_joint',
+            '/World/hsrb/hand_palm_link/hand_r_proximal_joint',
+            '/World/hsrb/hand_r_mimic_distal_link/hand_r_distal_joint'
+        ]
 
-        def _set_joint_position(self, name: str, target_position: float) -> None:
-            if name == 'hand_l_distal_joint':
-                target_position = -target_position
-            if name == 'hand_r_distal_joint':
-                target_position = -target_position
-            super()._set_joint_position(name, target_position)
+    def _set_joint_position(self, name: str, target_position: float) -> None:
+        if name == 'hand_l_distal_joint':
+            target_position = -target_position
+        if name == 'hand_r_distal_joint':
+            target_position = -target_position
+        super()._set_joint_position(name, target_position)
 
 
-    class gripper_apply_force_action_server(gripper_command_action_server):
-        def __init__(self):
+class gripper_apply_force_action_server(gripper_command_action_server):
+    def __init__(self, node=None, _dci=None):
+        if is_ros2 is False:
             super().__init__()
             self._action_result_message = GripperApplyEffortResult()
             self._action_feedback_message = GripperApplyEffortFeedback()
-            self._inverse_direction = False
+        else:
+            super().__init__(node, _dci)
+            self._action_result_message = GripperApplyEffort.Result()
+            self._action_feedback_message = GripperApplyEffort.Feedback()
+        self._inverse_direction = False
 
-        def _get_joint_effort(self, name: str) -> float:
-            effort = self.dci.get_dof_state(self._joints[name]["dof"], _dynamic_control.STATE_EFFORT).effort
-            return effort
+    def _get_joint_effort(self, name: str) -> float:
+        effort = self.dci.get_dof_state(self._joints[name]["dof"], _dynamic_control.STATE_EFFORT).effort
+        return effort
 
-        # most of this part is copied from:
-        #  https://github.com/Toni-SM/semu.robotics.ros_bridge/blob/main/exts/semu.robotics.ros_bridge/semu/robotics/ros_bridge/ogn/nodes/OgnROS1ActionGripperCommand.py
-        def step(self, dt: float) -> None:
-            if not self.initialized:
-                return
-            if not self._joints:
-                self._init_articulation()
-                return
-            if self._action_goal is not None and self._action_goal_handle is not None:
-                target_effort = self._action_goal.effort
-                if self._inverse_direction:
-                    target_effort = -target_effort
+    # most of this part is copied from:
+    #  https://github.com/Toni-SM/semu.robotics.ros_bridge/blob/main/exts/semu.robotics.ros_bridge/semu/robotics/ros_bridge/ogn/nodes/OgnROS1ActionGripperCommand.py
+    def step(self, dt: float) -> None:
+        #if not self.initialized:
+        #    return
+        if not self._joints:
+            self._init_articulation()
+            return
+        if self._action_goal is not None and self._action_goal_handle is not None:
+            target_effort = self._action_goal.effort
+            if self._inverse_direction:
+                target_effort = -target_effort
 
-                self.dci.wake_up_articulation(self._articulation)
-                for name in self._joints:
-                    if target_effort >= 0.0:
-                        self._set_joint_position(name, 0.0)
+            self.dci.wake_up_articulation(self._articulation)
+            for name in self._joints:
+                if target_effort >= 0.0:
+                    self._set_joint_position(name, 0.0)
+                else:
+                    self._set_joint_position(name, math.pi)
+
+            # compare target and current effort
+            effort = 0
+            effort_reached = True
+            for name in self._joints:
+                effort = self._get_joint_effort(name)
+                if abs(effort) - abs(target_effort) < 0.0:
+                    effort_reached = False
+                    break
+            if effort_reached:
+                self._action_goal = None
+                self._action_result_message.effort = effort
+                self._action_result_message.stalled = False
+                if self._action_goal_handle is not None:
+                    if is_ros2 is False:
+                        self._action_goal_handle.set_succeeded(self._action_result_message)
                     else:
-                        self._set_joint_position(name, math.pi)
+                        self._action_goal_handle.succeed()
+                    self._action_goal_handle = None
+                return
 
-                # compare target and current effort
-                effort = 0
-                effort_reached = True
-                for name in self._joints:
-                    effort = self._get_joint_effort(name)
-                    if abs(effort) - abs(target_effort) < 0.0:
-                        effort_reached = False
-                        break
-                if effort_reached:
-                    self._action_goal = None
-                    self._action_result_message.effort = effort
-                    self._action_result_message.stalled = False
-                    if self._action_goal_handle is not None:
-                        self._action_goal_handle.set_succeeded(self._action_result_message)
-                        self._action_goal_handle = None
-                    return
+            # check if joints are moving (if not, results "stalled")
+            current_position_sum = 0
+            for name in self._joints:
+                position = self._get_joint_position(name)
+                current_position_sum += position
+            if abs(current_position_sum - self._action_previous_position_sum) < 1e-6:
+                self._action_goal = None
+                self._action_result_message.effort = effort
+                self._action_result_message.stalled = True
+                if self._action_goal_handle is not None:
+                    if is_ros2 is False:
+                        self._action_goal_handle.set_aborted(self._action_result_message)
+                    else:
+                        self._action_goal_handle.abort()
+                    self._action_goal_handle = None
+                return
+            self._action_previous_position_sum = current_position_sum
 
-                # check if joints are moving (if not, results "stalled")
-                current_position_sum = 0
-                for name in self._joints:
-                    position = self._get_joint_position(name)
-                    current_position_sum += position
-                if abs(current_position_sum - self._action_previous_position_sum) < 1e-6:
-                    self._action_goal = None
-                    self._action_result_message.effort = effort
-                    self._action_result_message.stalled = True
-                    if self._action_goal_handle is not None:
-                        self._action_goal_handle.set_succeeded(self._action_result_message)
-                        self._action_goal_handle = None
-                    return
-                self._action_previous_position_sum = current_position_sum
-
-                # check timeout
-                time_passed = rospy.get_time() - self._action_start_time
-                if time_passed >= self._action_timeout:
-                    self._action_goal = None
-                    if self._action_goal_handle is not None:
+            # check timeout
+            time_passed = rospy.get_time() - self._action_start_time
+            if time_passed >= self._action_timeout:
+                self._action_goal = None
+                if self._action_goal_handle is not None:
+                    if is_ros2 is False:
                         self._action_goal_handle.set_aborted()
-                        self._action_goal_handle = None
+                    else:
+                        self._action_goal_handle.abort()
+                    self._action_goal_handle = None
 
 
 class hsr_config:
@@ -303,6 +323,9 @@ class hsr:
             self.create_subscriber = lambda t, d, c: self.ros2node.create_subscription(d, t, c, qos_profile=rclpy.qos.qos_profile_sensor_data)
             self.create_publisher = lambda t, d: self.ros2node.create_publisher(d, t, qos_profile=rclpy.qos.qos_profile_sensor_data)
             self.get_ros_time = lambda t: rclpy.time.Time(seconds=t).to_msg()
+            executor = rclpy.executors.MultiThreadedExecutor()
+            executor.add_node(self.ros2node)
+            threading.Thread(target=executor.spin).start()
         else:
             self.create_subscriber = lambda t, d, c: rospy.Subscriber(t, d, c)
             self.create_publisher = lambda t, d: rospy.Publisher(t, d, queue_size=5)
@@ -340,46 +363,47 @@ class hsr:
 
         self.joint_state_pub = self.create_publisher(self.prefix + '/joint_states', JointState)
 
-        def init_action_server(srv, name, msg):
-            srv.articulation_path = '/World' + self.prefix
-            srv.usd_context = omni.usd.get_context()
-            srv.dci = self.dc
-            action_topic_name = self.prefix + "/" + name
-            srv.action_server = actionlib.ActionServer(
-                action_topic_name,
-                msg,
-                goal_cb=srv.on_goal,
-                cancel_cb=srv.on_cancel,
-                auto_start=False)
-            srv.action_server.start()
-            if msg == FollowJointTrajectoryAction:
-                srv.action_client = actionlib.SimpleActionClient(action_topic_name, msg)
-                def command_topic_callback(msg, args):
-                    srv = args[0]
-                    goal = FollowJointTrajectoryGoal(trajectory=msg)
-                    if srv._action_goal is not None:
-                        # reject if joints don't match
-                        for name in goal.trajectory.joint_names:
-                            if name not in self._joints:
-                                print("[Warning][semu.robotics.ros_bridge] ROS1 FollowJointTrajectory: joints don't match ({} not in {})" \
-                                    .format(name, list(self._joints.keys())))
-                                return
-                        # check initial position
-                        if goal.trajectory.points[0].time_from_start.to_sec():
-                            initial_point = JointTrajectoryPoint(positions=[srv._get_joint_position(name) for name in goal.trajectory.joint_names],
-                                                                time_from_start=rospy.Duration())
-                            goal.trajectory.points.insert(0, initial_point)
-                        # store goal data
-                        srv._action_goal = goal
-                        srv._action_point_index = 1
-                        srv._action_start_time = rospy.get_time()
-                        srv._action_feedback_message.joint_names = list(goal.trajectory.joint_names)
-                    else:
-                        srv.action_client.send_goal(goal)
-                srv.topic_interface = rospy.Subscriber(action_topic_name.replace('/follow_joint_trajectory', '/command'), JointTrajectory, command_topic_callback, (srv,) )
-            srv.initialized = True
-
         if is_ros2 is False:
+            def init_action_server(srv, name, msg):
+                srv.articulation_path = '/World' + self.prefix
+                srv.usd_context = omni.usd.get_context()
+                srv.dci = self.dc
+                action_topic_name = self.prefix + "/" + name
+                srv.action_server = actionlib.ActionServer(
+                    action_topic_name,
+                    msg,
+                    goal_cb=srv.on_goal,
+                    cancel_cb=srv.on_cancel,
+                    auto_start=False)
+                srv.action_server.start()
+                if msg == FollowJointTrajectoryAction:
+                    # add topic based interface (in addition to action) which cancel the current action
+                    srv.action_client = actionlib.SimpleActionClient(action_topic_name, msg)
+                    def command_topic_callback(msg, args):
+                        srv = args[0]
+                        goal = FollowJointTrajectoryGoal(trajectory=msg)
+                        if srv._action_goal is not None:
+                            # reject if joints don't match
+                            for name in goal.trajectory.joint_names:
+                                if name not in self._joints:
+                                    print("[Warning][semu.robotics.ros_bridge] ROS1 FollowJointTrajectory: joints don't match ({} not in {})" \
+                                        .format(name, list(self._joints.keys())))
+                                    return
+                            # check initial position
+                            if goal.trajectory.points[0].time_from_start.to_sec():
+                                initial_point = JointTrajectoryPoint(positions=[srv._get_joint_position(name) for name in goal.trajectory.joint_names],
+                                                                    time_from_start=rospy.Duration())
+                                goal.trajectory.points.insert(0, initial_point)
+                            # store goal data
+                            srv._action_goal = goal
+                            srv._action_point_index = 1
+                            srv._action_start_time = rospy.get_time()
+                            srv._action_feedback_message.joint_names = list(goal.trajectory.joint_names)
+                        else:
+                            srv.action_client.send_goal(goal)
+                    srv.topic_interface = rospy.Subscriber(action_topic_name.replace('/follow_joint_trajectory', '/command'), JointTrajectory, command_topic_callback, (srv,) )
+                srv.initialized = True
+
             self.arm_trajectory_action_server = arm_trajectory_action_server()
             init_action_server(self.arm_trajectory_action_server, 'arm_trajectory_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
 
@@ -400,6 +424,57 @@ class hsr:
             self.gripper_command_action_server = gripper_apply_force_action_server()
             self.gripper_command_action_server._inverse_direction = True
             init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperApplyEffortAction)
+        else:  # ros2
+            def init_action_server(srv, name, msg):
+                articulation_namespace = '/World' + self.prefix
+                action_topic_name = self.prefix + "/" + name
+                srv.start(articulation_namespace, action_topic_name)
+                if False: #msg == FollowJointTrajectory:
+                    # add topic based interface (in addition to action) which cancel the current action
+                    srv.action_client = actionlib.SimpleActionClient(action_topic_name, msg)
+                    def command_topic_callback(msg, args):
+                        srv = args[0]
+                        goal = FollowJointTrajectory.Goal(trajectory=msg)
+                        if srv._action_goal is not None:
+                            # reject if joints don't match
+                            for name in goal.trajectory.joint_names:
+                                if name not in self._joints:
+                                    print("[Warning][semu.robotics.ros_bridge] ROS1 FollowJointTrajectory: joints don't match ({} not in {})" \
+                                        .format(name, list(self._joints.keys())))
+                                    return
+                            # check initial position
+                            if goal.trajectory.points[0].time_from_start.to_sec():
+                                initial_point = JointTrajectoryPoint(positions=[srv._get_joint_position(name) for name in goal.trajectory.joint_names],
+                                                                    time_from_start=rospy.Duration())
+                                goal.trajectory.points.insert(0, initial_point)
+                            # store goal data
+                            srv._action_goal = goal
+                            srv._action_point_index = 1
+                            srv._action_start_time = rospy.get_time()
+                            srv._action_feedback_message.joint_names = list(goal.trajectory.joint_names)
+                        else:
+                            srv.action_client.send_goal(goal)
+                    srv.topic_interface = rospy.Subscriber(action_topic_name.replace('/follow_joint_trajectory', '/command'), JointTrajectory, command_topic_callback, (srv,) )
+            self.arm_trajectory_action_server = arm_trajectory_action_server(self.ros2node, self.dc)
+            init_action_server(self.arm_trajectory_action_server, 'arm_trajectory_controller/follow_joint_trajectory', FollowJointTrajectory)
+
+            self.head_trajectory_action_server = head_trajectory_action_server(self.ros2node, self.dc)
+            init_action_server(self.arm_trajectory_action_server, 'head_trajectory_controller/follow_joint_trajectory', FollowJointTrajectory)
+
+            self.odom_trajectory_action_server = odom_trajectory_action_server(self.ros2node, self.dc)
+            init_action_server(self.odom_trajectory_action_server, 'omni_base_controller/follow_joint_trajectory', FollowJointTrajectory)
+
+            self.gripper_trajectory_action_server = gripper_trajectory_action_server(self.ros2node, self.dc)
+            init_action_server(self.gripper_trajectory_action_server, 'gripper_controller/follow_joint_trajectory', FollowJointTrajectory)
+
+            self.gripper_apply_force_action_server = gripper_apply_force_action_server(self.ros2node, self.dc)
+            init_action_server(self.gripper_apply_force_action_server, 'gripper_controller/apply_force', GripperApplyEffort)
+
+            #self.gripper_command_action_server = gripper_command_action_server()
+            #init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperCommand)
+            self.gripper_command_action_server = gripper_apply_force_action_server(self.ros2node, self.dc)
+            self.gripper_command_action_server._inverse_direction = True
+            init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperApplyEffort)
 
     def create_cameras(self) -> None:
         # Creating a Camera prim
@@ -992,12 +1067,11 @@ class hsr:
         wrench.wrench.torque.z = float(force_readings[0][0][5])
         self.ft_sensor_pub.publish(wrench)
 
-        if is_ros2 is False:
-            self.arm_trajectory_action_server.step(dt=dt)
-            self.head_trajectory_action_server.step(dt=dt)
-            self.odom_trajectory_action_server.step(dt=dt)
-            self.gripper_trajectory_action_server.step(dt=dt)
-            self.gripper_apply_force_action_server.step(dt=dt)
-            self.gripper_command_action_server.step(dt=dt)
+        self.arm_trajectory_action_server.step(dt=dt)
+        self.head_trajectory_action_server.step(dt=dt)
+        self.odom_trajectory_action_server.step(dt=dt)
+        self.gripper_trajectory_action_server.step(dt=dt)
+        self.gripper_apply_force_action_server.step(dt=dt)
+        self.gripper_command_action_server.step(dt=dt)
 
         self.prev_time = self.simulation_context.current_time

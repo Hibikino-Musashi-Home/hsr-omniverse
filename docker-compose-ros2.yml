@@ -3,6 +3,23 @@
 # All rights reserved.
 version: "2.3"
 services:
+  ros:
+    build:
+      context: .
+      dockerfile: Dockerfile.ros2
+    ipc: host
+    network_mode: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    environment:
+      - DISPLAY
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=graphics
+    security_opt:
+      - seccomp:unconfined
   cacheproxy:
     build:
       context: .
@@ -16,7 +33,11 @@ services:
     network_mode: host
     security_opt:
       - seccomp:unconfined
-    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
     devices:
       - /dev/dri:/dev/dri
     environment:
