@@ -29,6 +29,7 @@ RUN apt update && \
     ros-humble-moveit \
     ros-humble-moveit-ros-move-group \
     ros-humble-moveit-ros-perception \
+    ros-humble-pinocchio \
     ros-humble-nav2-map-server \
     ros-humble-nav2-bringup \
     ros-humble-navigation2 \
@@ -45,9 +46,15 @@ RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
     cd /ws/src && \
     git clone -b foxy https://github.com/hsr-project/hsrb_description.git && \
     git clone -b foxy https://github.com/hsr-project/hsrb_meshes.git && \
+    git clone -b humble https://github.com/hsr-project/tmc_manipulation_base.git && \
+    git clone -b humble https://github.com/hsr-project/hsrb_manipulation.git && \
+    git clone -b humble https://github.com/hsr-project/hsrb_moveit_plugins.git && \
     git clone -b humble https://github.com/hsr-project/hsrb_moveit_config.git && \
     git clone -b foxy https://github.com/hsr-project/tmc_control_msgs.git && \
     git clone -b humble https://github.com/hsr-project/hsrb_rosnav.git && \
+    rm -r tmc_manipulation_base/tmc_manipulation_types_bridge && \
+    rm -r tmc_manipulation_base/tmc_collision_detector && \
+    rm -r tmc_manipulation_base/tmc_robot_collision_detector && \
     cd .. && \
     colcon build
 
