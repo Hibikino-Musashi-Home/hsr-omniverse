@@ -33,6 +33,7 @@ RUN apt update && \
     ros-humble-tf-transformations \
     ros-humble-tf2 \
     ros-humble-tf2-msgs \
+    ros-humble-tf2-ros-py \
     ros-humble-actionlib-msgs \
     ros-humble-geometry-msgs \
     ros-humble-control-msgs \

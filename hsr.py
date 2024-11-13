@@ -26,7 +26,7 @@ try:
     import rospy
     import tf.transformations
     import actionlib
-    from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped
+    from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped, TransformStamped
     from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryActionGoal, FollowJointTrajectoryGoal, GripperCommandAction, GripperCommandActionGoal
     from actionlib_msgs.msg import GoalStatusArray, GoalStatus, GoalID
     from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -44,11 +44,12 @@ except ImportError:
     import rclpy.node
     import rclpy.qos
     import rclpy.time
-    from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped
+    from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped, TransformStamped
     from control_msgs.action import FollowJointTrajectory, GripperCommand
     from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
     from sensor_msgs.msg import JointState, Imu
     from nav_msgs.msg import Odometry
+    from tf2_ros import TransformBroadcaster
     from tmc_control_msgs.action import GripperApplyEffort
     import tf_transformations
     def quaternion_from_euler(r, p, y):
@@ -323,6 +324,7 @@ class hsr:
             self.create_subscriber = lambda t, d, c: self.ros2node.create_subscription(d, t, c, qos_profile=rclpy.qos.qos_profile_sensor_data)
             self.create_publisher = lambda t, d: self.ros2node.create_publisher(d, t, qos_profile=rclpy.qos.qos_profile_sensor_data)
             self.get_ros_time = lambda t: rclpy.time.Time(seconds=t).to_msg()
+            self.tf_broadcaster = TransformBroadcaster(self.ros2node)
             executor = rclpy.executors.MultiThreadedExecutor()
             executor.add_node(self.ros2node)
             threading.Thread(target=executor.spin).start()
@@ -346,7 +348,8 @@ class hsr:
 
         self.laserscan_pose_sub = self.create_subscriber(self.prefix + '/laser_scan_matcher/pose', PoseStamped, self.on_laserscan_pose)
         self.laser_odom_pub = self.create_publisher(self.prefix + '/laser_odom', Odometry)
-        self.base_odom_pub = self.create_publisher(self.prefix + '/base_controller/odom', Odometry)
+        #self.base_odom_pub = self.create_publisher('/omni_base_controller/wheel_odom' if is_ros2 else self.prefix + '/base_controller/odom', Odometry)
+        self.base_odom_pub = self.create_publisher('/odom' if is_ros2 else self.prefix + '/base_controller/odom', Odometry)
 
         self.robots = ArticulationView(prim_paths_expr="/World" + self.prefix, name="hsr_view")
         self.ft_sensor_pub = self.create_publisher(self.prefix + '/wrist_wrench/raw', WrenchStamped)
@@ -356,7 +359,7 @@ class hsr:
 
         self.cmd_vel_msg = None
         self.last_cmd_vel_time = 0.0
-        self.create_subscriber(self.prefix + "/command_velocity", Twist, self.on_cmd_vel)
+        self.create_subscriber("/omni_base_controller/cmd_vel" if is_ros2 else self.prefix + "/command_velocity", Twist, self.on_cmd_vel)
         self.odometry_ = BaseOdometry()
         self.vel_limit_steer_ = 8.0
         self.vel_limit_wheel_ = 8.0
@@ -805,7 +808,7 @@ class hsr:
                 ],
                 og.Controller.Keys.SET_VALUES: [
                     ("publishLaserScan.inputs:frameId", "base_range_sensor_link"),
-                    ("publishLaserScan.inputs:topicName", self.prefix + "/base_scan"),
+                    ("publishLaserScan.inputs:topicName", "/scan" if is_ros2 else self.prefix + "/base_scan"),
                 ],
             },
         )
@@ -986,7 +989,7 @@ class hsr:
 
         odom = Odometry()
         odom.header.stamp = self.get_ros_time(self.simulation_context.current_time)
-        odom.header.frame_id = "world"
+        odom.header.frame_id = "odom" if is_ros2 else "world"
         odom.child_frame_id = "base_footprint"
         odom.pose.pose.position.x = self.odometry_.x
         odom.pose.pose.position.y = self.odometry_.y
@@ -1016,6 +1019,18 @@ class hsr:
             0.0, 0.0, 0.0, 0.0, 0.0, 1000.0,
         ]
         self.base_odom_pub.publish(odom)
+
+        if is_ros2:
+            base_odom_tf = TransformStamped()
+            base_odom_tf.header.stamp = odom.header.stamp
+            base_odom_tf.header.frame_id = "odom"
+            base_odom_tf.child_frame_id = "base_footprint"
+            base_odom_tf.transform.translation.x = self.odometry_.x
+            base_odom_tf.transform.translation.y = self.odometry_.y
+            base_odom_tf.transform.translation.z = 0.0
+            q = quaternion_from_euler(0, 0, self.odometry_.ang)
+            base_odom_tf.transform.rotation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
+            self.tf_broadcaster.sendTransform(base_odom_tf)
 
         cmd = CartSpace()
         if is_ros2 is False and self.odom_trajectory_action_server._action_goal is not None:
