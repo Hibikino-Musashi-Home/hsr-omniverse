@@ -322,7 +322,7 @@ class RosControlFollowJointTrajectory(RosController):
                 ratio = (time_passed - self._duration_to_seconds(previous_point.time_from_start)) \
                       / (self._duration_to_seconds(current_point.time_from_start) \
                           - self._duration_to_seconds(previous_point.time_from_start))
-                self._dci.wake_up_articulation(self._articulation)
+                self.dci.wake_up_articulation(self._articulation)
                 for i, name in enumerate(self._action_goal.trajectory.joint_names):
                     side = -1 if current_point.positions[i] < previous_point.positions[i] else 1
                     target_position = previous_point.positions[i] \
@@ -578,7 +578,7 @@ class RosControllerGripperCommand(RosController):
             self._action_dt = dt
             target_position = self._action_goal.command.position
             # set target
-            self._dci.wake_up_articulation(self._articulation)
+            self.dci.wake_up_articulation(self._articulation)
             for name in self._joints:
                 self._set_joint_position(name, target_position)
             # end (position reached)
