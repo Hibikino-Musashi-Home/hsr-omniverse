@@ -1,0 +1,66 @@
+# Copyright (c) 2023, Toyota Motor Corporation
+# Copyright (c) 2023, MID Academic Promotions, Inc.
+# All rights reserved.
+
+FROM ros:humble-ros-core-jammy
+
+SHELL ["/bin/bash", "-c"]
+
+ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt update && \
+    apt install -y git python-is-python3 g++ make libgflags-dev \
+    python3-colcon-common-extensions \
+    ros-humble-rclpy \
+    ros-humble-rosidl-default-generators \
+    ros-humble-tf-transformations \
+    ros-humble-tf2 \
+    ros-humble-tf2-msgs \
+    ros-humble-actionlib-msgs \
+    ros-humble-geometry-msgs \
+    ros-humble-control-msgs \
+    ros-humble-trajectory-msgs \
+    ros-humble-sensor-msgs \
+    ros-humble-nav-msgs \
+    ros-humble-vision-msgs \
+    \
+    ros-humble-topic-tools \
+    ros-humble-joint-state-publisher \
+    ros-humble-moveit \
+    ros-humble-moveit-ros-move-group \
+    ros-humble-moveit-ros-perception \
+    ros-humble-nav2-map-server \
+    ros-humble-nav2-bringup \
+    ros-humble-navigation2 \
+    ros-humble-robot-state-publisher \
+    ros-humble-depth-image-proc \
+    ros-humble-image-transport-plugins \
+    ros-humble-rviz-imu-plugin \
+    ros-humble-rqt-robot-steering \
+    && \
+    apt clean
+
+RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
+    mkdir -p /ws/src && \
+    cd /ws/src && \
+    git clone -b foxy https://github.com/hsr-project/hsrb_description.git && \
+    git clone -b foxy https://github.com/hsr-project/hsrb_meshes.git && \
+    git clone -b humble https://github.com/hsr-project/hsrb_moveit_config.git && \
+    git clone -b foxy https://github.com/hsr-project/tmc_control_msgs.git && \
+    git clone -b humble https://github.com/hsr-project/hsrb_rosnav.git && \
+    cd .. && \
+    colcon build
+
+RUN curl -sSL https://raw.githubusercontent.com/NVIDIA-Omniverse/IsaacSim-ros_workspaces/main/humble_ws/fastdds.xml -o /fastdds.xml
+ENV FASTRTPS_DEFAULT_PROFILES_FILE /fastdds.xml
+
+RUN curl -sSL https://github.com/hsr-project/hsrb_rosnav/raw/refs/heads/master/hsrb_rosnav_config/maps/white_space/map.yaml -o /map.yaml
+RUN curl -sSL https://github.com/hsr-project/hsrb_rosnav/raw/refs/heads/master/hsrb_rosnav_config/maps/white_space/white_space.pgm -o /white_space.pgm
+
+ADD hsr.launch.py /hsr.launch.py
+ADD hsr-omniverse.rviz /hsr-omniverse.rviz
+
+ADD ros_entrypoint.sh.ros2 /ros_entrypoint.sh
+
+CMD [ "ros2", "launch", "/hsr.launch.py" ]
+#CMD [ "tail", "-f", "/dev/null" ]
