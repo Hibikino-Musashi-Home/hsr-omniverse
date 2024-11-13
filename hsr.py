@@ -430,7 +430,7 @@ class hsr:
         else:  # ros2
             def init_action_server(srv, name, msg):
                 articulation_namespace = '/World' + self.prefix
-                action_topic_name = self.prefix + "/" + name
+                action_topic_name = "/" + name
                 srv.start(articulation_namespace, action_topic_name)
                 if False: #msg == FollowJointTrajectory:
                     # add topic based interface (in addition to action) which cancel the current action
