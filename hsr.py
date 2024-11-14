@@ -323,6 +323,7 @@ class hsr:
             self.ros2node = rclpy.node.Node("isaac_sim_hsr")
             self.create_subscriber = lambda t, d, c: self.ros2node.create_subscription(d, t, c, qos_profile=rclpy.qos.qos_profile_sensor_data)
             self.create_publisher = lambda t, d: self.ros2node.create_publisher(d, t, qos_profile=rclpy.qos.qos_profile_sensor_data)
+            self.create_publisher_reliable = lambda t, d: self.ros2node.create_publisher(d, t, qos_profile=rclpy.qos.qos_profile_system_default)
             self.get_ros_time = lambda t: rclpy.time.Time(seconds=t).to_msg()
             self.tf_broadcaster = TransformBroadcaster(self.ros2node)
             executor = rclpy.executors.MultiThreadedExecutor()
@@ -331,6 +332,7 @@ class hsr:
         else:
             self.create_subscriber = lambda t, d, c: rospy.Subscriber(t, d, c)
             self.create_publisher = lambda t, d: rospy.Publisher(t, d, queue_size=5)
+            self.create_publisher_reliable = lambda t, d: rospy.Publisher(t, d, queue_size=5)  # ROS1 is always reliable
             self.get_ros_time = lambda t: rospy.Time(t)
 
         self.prefix = prefix
@@ -364,7 +366,7 @@ class hsr:
         self.vel_limit_steer_ = 8.0
         self.vel_limit_wheel_ = 8.0
 
-        self.joint_state_pub = self.create_publisher(self.prefix + '/joint_states', JointState)
+        self.joint_state_pub = self.create_publisher_reliable('/joint_states' if is_ros2 else self.prefix + '/joint_states', JointState)
 
         if is_ros2 is False:
             def init_action_server(srv, name, msg):
@@ -480,6 +482,8 @@ class hsr:
             init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperApplyEffort)
 
     def create_cameras(self) -> None:
+        topic_prefix = '' if is_ros2 else self.prefix
+
         # Creating a Camera prim
         l_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim('/World' + self.prefix + "/head_l_stereo_camera_link/Camera", "Camera"))
         xform_api = UsdGeom.XformCommonAPI(l_camera_prim)
@@ -561,10 +565,10 @@ class hsr:
                         ("createRenderProduct.inputs:width", 1280),
                         ("createRenderProduct.inputs:height", 960),
                         ("cameraHelperRgb.inputs:frameId", "head_l_stereo_camera_frame"),
-                        ("cameraHelperRgb.inputs:topicName", self.prefix + "/head_l_stereo_camera/image_rect_color"),
+                        ("cameraHelperRgb.inputs:topicName", topic_prefix + "/head_l_stereo_camera/image_rect_color"),
                         ("cameraHelperRgb.inputs:type", "rgb"),
                         ("cameraHelperInfo.inputs:frameId", "head_l_stereo_camera_frame"),
-                        ("cameraHelperInfo.inputs:topicName", self.prefix + "/head_l_stereo_camera/camera_info"),
+                        ("cameraHelperInfo.inputs:topicName", topic_prefix + "/head_l_stereo_camera/camera_info"),
                         ("cameraHelperInfo.inputs:type", "camera_info"),
                     ],
                 },
@@ -593,10 +597,10 @@ class hsr:
                         ("createRenderProduct.inputs:width", 1280),
                         ("createRenderProduct.inputs:height", 960),
                         ("cameraHelperRgb.inputs:frameId", "head_r_stereo_camera_frame"),
-                        ("cameraHelperRgb.inputs:topicName", self.prefix + "/head_r_stereo_camera/image_rect_color"),
+                        ("cameraHelperRgb.inputs:topicName", topic_prefix + "/head_r_stereo_camera/image_rect_color"),
                         ("cameraHelperRgb.inputs:type", "rgb"),
                         ("cameraHelperInfo.inputs:frameId", "head_r_stereo_camera_frame"),
-                        ("cameraHelperInfo.inputs:topicName", self.prefix + "/head_r_stereo_camera/camera_info"),
+                        ("cameraHelperInfo.inputs:topicName", topic_prefix + "/head_r_stereo_camera/camera_info"),
                         ("cameraHelperInfo.inputs:type", "camera_info"),
                     ],
                 },
@@ -630,16 +634,16 @@ class hsr:
                         ("createRenderProduct.inputs:width", 640),
                         ("createRenderProduct.inputs:height", 480),
                         ("cameraHelperRgb.inputs:frameId", "head_rgbd_sensor_rgb_frame"),
-                        ("cameraHelperRgb.inputs:topicName", self.prefix + "/head_rgbd_sensor/rgb/image_rect_color"),
+                        ("cameraHelperRgb.inputs:topicName", topic_prefix + "/head_rgbd_sensor/rgb/image_rect_color"),
                         ("cameraHelperRgb.inputs:type", "rgb"),
                         ("cameraHelperInfo.inputs:frameId", "head_rgbd_sensor_rgb_frame"),
-                        ("cameraHelperInfo.inputs:topicName", self.prefix + "/head_rgbd_sensor/rgb/camera_info"),
+                        ("cameraHelperInfo.inputs:topicName", topic_prefix + "/head_rgbd_sensor/rgb/camera_info"),
                         ("cameraHelperInfo.inputs:type", "camera_info"),
                         ("cameraHelperDepth.inputs:frameId", "head_rgbd_sensor_rgb_frame"),
-                        ("cameraHelperDepth.inputs:topicName", self.prefix + "/head_rgbd_sensor/depth_registered/image_rect_raw"),
+                        ("cameraHelperDepth.inputs:topicName", topic_prefix + "/head_rgbd_sensor/depth_registered/image_rect_raw"),
                         ("cameraHelperDepth.inputs:type", "depth"),
                         ("cameraHelperDepthInfo.inputs:frameId", "head_rgbd_sensor_rgb_frame"),
-                        ("cameraHelperDepthInfo.inputs:topicName", self.prefix + "/head_rgbd_sensor/depth_registered/camera_info"),
+                        ("cameraHelperDepthInfo.inputs:topicName", topic_prefix + "/head_rgbd_sensor/depth_registered/camera_info"),
                         ("cameraHelperDepthInfo.inputs:type", "camera_info"),
                     ],
                 },
@@ -668,10 +672,10 @@ class hsr:
                         ("createRenderProduct.inputs:width", 640),
                         ("createRenderProduct.inputs:height", 480),
                         ("cameraHelperRgb.inputs:frameId", "hand_camera_frame"),
-                        ("cameraHelperRgb.inputs:topicName", self.prefix + "/hand_camera/image_raw"),
+                        ("cameraHelperRgb.inputs:topicName", topic_prefix + "/hand_camera/image_raw"),
                         ("cameraHelperRgb.inputs:type", "rgb"),
                         ("cameraHelperInfo.inputs:frameId", "hand_camera_frame"),
-                        ("cameraHelperInfo.inputs:topicName", self.prefix + "/hand_camera/camera_info"),
+                        ("cameraHelperInfo.inputs:topicName", topic_prefix + "/hand_camera/camera_info"),
                         ("cameraHelperInfo.inputs:type", "camera_info"),
                     ],
                 },
