@@ -38,6 +38,15 @@ POSSIBILITY OF SUCH DAMAGE.
     <composable_node namespace="$(var rgb_topic_prefix)" pkg="image_proc" plugin="image_proc::DebayerNode" name="debayer"/>
   </node_container>
 
+  <node_container namespace="$(var depth_topic_prefix)" pkg="rclcpp_components" exec="component_container" name="nodelet_manager">
+    <composable_node namespace="$(var depth_topic_prefix)" pkg="depth_image_proc" plugin="depth_image_proc::PointCloudXyzrgbNode" name="pointcloud_xyzrgb">
+      <remap from="rgb/camera_info" to="/head_rgbd_sensor/depth_registered/camera_info"/>
+      <remap from="rgb/image_rect_color" to="/head_rgbd_sensor/rgb/image_rect_color"/>
+      <remap from="depth_registered/image_rect" to="/head_rgbd_sensor/depth_registered/image_rect_raw"/>
+      <remap from="points" to="/head_rgbd_sensor/depth_registered/rectified_points"/>
+    </composable_node>
+  </node_container>
+
   <!-- xtion rgb -->
   <node name="rgb_raw_image_pub" pkg="topic_tools" exec="relay"
   args="$(var rgb_topic_prefix)/image_rect_color $(var rgb_topic_prefix)/image_raw">

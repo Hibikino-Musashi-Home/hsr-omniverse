@@ -37,6 +37,7 @@ RUN apt update && \
     ros-humble-depth-image-proc \
     ros-humble-image-transport-plugins \
     ros-humble-image-proc \
+    ros-humble-depth-image-proc \
     ros-humble-rviz-imu-plugin \
     ros-humble-rqt-robot-steering \
     && \
