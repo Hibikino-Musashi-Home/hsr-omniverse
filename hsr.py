@@ -99,7 +99,7 @@ class odom_trajectory_action_server(semuInternalState):
 
     def _get_time(self) -> float:
         if is_ros2:
-            return self.get_clock().now().nanoseconds / 1e9
+            return self._node.get_clock().now().nanoseconds / 1e9
         return rospy.get_time()
 
     def step(self, dt: float) -> None:
