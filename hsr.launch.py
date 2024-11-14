@@ -8,6 +8,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription, LaunchContext
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch_xml.launch_description_sources import XMLLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 
 from launch_ros.actions import Node, SetParameter
@@ -64,11 +65,23 @@ def generate_launch_description():
     for arg in declare_arguments():
         args[arg.name] = LaunchConfiguration(arg.name)
 
+    relay_node = GroupAction(
+        actions=[
+            IncludeLaunchDescription(
+                XMLLaunchDescriptionSource(
+                    [
+                        'hsrb_relay_topics.launch.xml',
+                    ]
+                ),
+            )
+        ]
+    )
+
     joint_state_publisher = Node(
         package='joint_state_publisher',
         executable='joint_state_publisher',
         parameters=[
-            {'source_list': ['/hsrb/joint_states']},
+            {'source_list': ['/joint_states']},
         ],
         namespace='whole_body',
         remappings=[('robot_description', '/robot_description')],
@@ -97,11 +110,12 @@ def generate_launch_description():
     )
 
     nodes = [
+        relay_node,
         joint_state_publisher,
         robot_state_publisher,
         nav
     ]
 
     return LaunchDescription(
-        declare_arguments() + [SetParameter(name='use_sim_time', value='true'),] + nodes
+        declare_arguments() + [SetParameter(name='use_sim_time', value=True),] + nodes
     )

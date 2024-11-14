@@ -36,6 +36,7 @@ RUN apt update && \
     ros-humble-robot-state-publisher \
     ros-humble-depth-image-proc \
     ros-humble-image-transport-plugins \
+    ros-humble-image-proc \
     ros-humble-rviz-imu-plugin \
     ros-humble-rqt-robot-steering \
     && \
@@ -65,6 +66,7 @@ RUN curl -sSL https://github.com/hsr-project/hsrb_rosnav/raw/refs/heads/master/h
 RUN curl -sSL https://github.com/hsr-project/hsrb_rosnav/raw/refs/heads/master/hsrb_rosnav_config/maps/white_space/white_space.pgm -o /white_space.pgm
 
 ADD hsr.launch.py /hsr.launch.py
+ADD hsrb_relay_topics.launch.xml /hsrb_relay_topics.launch.xml
 ADD hsr-omniverse.rviz /hsr-omniverse.rviz
 
 ADD ros_entrypoint.sh.ros2 /ros_entrypoint.sh
