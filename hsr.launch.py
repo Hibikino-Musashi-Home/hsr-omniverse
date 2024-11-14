@@ -109,11 +109,31 @@ def generate_launch_description():
         ]
     )
 
+    moveit = GroupAction(
+        actions=[
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    [
+                        os.path.join(
+                            get_package_share_directory('hsrb_moveit_config'),
+                            'launch',
+                            'hsrb_demo.launch.py',
+                        )
+                    ]
+                ),
+                launch_arguments={
+                    'use_sim_time': 'true'
+                }.items(),
+            ),
+        ]
+    )
+
     nodes = [
         relay_node,
         joint_state_publisher,
         robot_state_publisher,
-        nav
+        nav,
+        moveit
     ]
 
     return LaunchDescription(
