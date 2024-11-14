@@ -97,6 +97,11 @@ class odom_trajectory_action_server(semuInternalState):
     def _get_joint_position(self, name: str) -> float:
         return self._joints[name]
 
+    def _get_time(self) -> float:
+        if is_ros2:
+            return self.get_clock().now().nanoseconds / 1e9
+        return rospy.get_time()
+
     def step(self, dt: float) -> None:
         if self._action_goal is not None and self._action_goal_handle is not None:
             # end of trajectory
@@ -107,8 +112,8 @@ class odom_trajectory_action_server(semuInternalState):
                 diff += abs(self._get_joint_position('odom_t') - self._odometry.ang)
                 # rospy.loginfo('omni trajectory remaining: %f', diff)
                 if self._remaining_start_time is None:
-                    self._remaining_start_time = rospy.get_time()
-                time_passed = rospy.get_time() - self._remaining_start_time
+                    self._remaining_start_time = self._get_time()
+                time_passed = self._get_time() - self._remaining_start_time
                 if diff > 0.001 and time_passed < 5.0:
                     return
             else:
@@ -1037,7 +1042,7 @@ class hsr:
             self.tf_broadcaster.sendTransform(base_odom_tf)
 
         cmd = CartSpace()
-        if is_ros2 is False and self.odom_trajectory_action_server._action_goal is not None:
+        if self.odom_trajectory_action_server._action_goal is not None:
             self.odom_trajectory_action_server._odometry = self.odometry_
             cmd.dot_x = self.odom_trajectory_action_server._joints['odom_x'] - self.odometry_.x
             cmd.dot_y = self.odom_trajectory_action_server._joints['odom_y'] - self.odometry_.y
