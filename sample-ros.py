@@ -33,13 +33,35 @@ except ImportError:
 
 viewports.set_camera_view(eye=np.array([1.2, 1.2, 0.8]), target=np.array([0, 0, 0.5]))
 
+create_prim(
+    "/World/Light_1",
+    "SphereLight",
+    position=np.array([2.0, 0.0, 5.0]),
+    attributes={
+        "inputs:radius": 0.01,
+        "inputs:intensity": 1e5,
+        "inputs:color": (1.0, 1.0, 1.0)
+    }
+)
+create_prim(
+    "/World/Light_2",
+    "SphereLight",
+    position=np.array([-2.0, 0.0, 5.0]),
+    attributes={
+        "inputs:radius": 0.01,
+        "inputs:intensity": 1e5,
+        "inputs:color": (1.0, 1.0, 1.0)
+    }
+)
+
 # Loading the simple_room environment
 assets_root_path = "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/" + get_version()[0]
 BACKGROUND_STAGE_PATH = "/background"
 #BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Room/simple_room.usd"
-BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
+#BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
 #BACKGROUND_USD_PATH = "/Isaac/Environments/Hospital/hospital.usd"
 #BACKGROUND_USD_PATH = "/Isaac/Environments/Office/office.usd"
+BACKGROUND_USD_PATH = "/Isaac/Environments/Grid/default_environment.usd"
 
 stage.add_reference_to_stage(assets_root_path + BACKGROUND_USD_PATH, BACKGROUND_STAGE_PATH)
 
