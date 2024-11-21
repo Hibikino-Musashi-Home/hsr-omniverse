@@ -43,7 +43,7 @@ create_prim(
     position=np.array([2.0, 0.0, 5.0]),
     attributes={
         "inputs:radius": 0.01,
-        "inputs:intensity": 1e5,
+        "inputs:intensity": 5e4,
         "inputs:color": (1.0, 1.0, 1.0)
     }
 )
@@ -53,7 +53,7 @@ create_prim(
     position=np.array([-2.0, 0.0, 5.0]),
     attributes={
         "inputs:radius": 0.01,
-        "inputs:intensity": 1e5,
+        "inputs:intensity": 5e4,
         "inputs:color": (1.0, 1.0, 1.0)
     }
 )
