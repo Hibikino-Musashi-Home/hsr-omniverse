@@ -22,6 +22,10 @@ from omni.isaac.version import get_version
 import hsr
 from pxr import Sdf, Gf, UsdPhysics
 
+sys.path.append(os.path.dirname(__file__) + '/tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/src')
+
+from tmc_wrs_gazebo_worlds import randomizer
+
 try:
     import rosgraph
     if not rosgraph.is_master_online():
@@ -89,10 +93,17 @@ for i in root.findall('world/include'):
         root_joint.CreateLocalRot1Attr().Set(Gf.Quatf(1.0))
 
 
-#for i, o in enumerate(['003_cracker_box', '004_sugar_box', '005_tomato_soup_can', '006_mustard_bottle']):
-#    path = f'/ycb_{o}'
-#    create_prim(prim_path=path, prim_type="Xform", position=[0.3, 0.0, 2.0 + 0.2 * i])
-#    stage.add_reference_to_stage(assets_root_path + f'/Isaac/Props/YCB/Axis_Aligned_Physics/{o}.usd', path)
+def drop_object(gazebo_name, name, x, y, z, yaw):
+    print(f'Drop {name} ({x}, {y}, {z}, {yaw})')
+    stage_path = f'/{gazebo_name.replace("-", "_")}'
+    model_path = os.path.dirname(os.path.abspath(__file__)) + '/usd/wrc_models/' + name + '/model.usd'
+    if not os.path.exists(model_path):
+        return
+    create_prim(prim_path=stage_path, prim_type="Xform", translation=[x, y, z], orientation=euler_angles_to_quat([0, 0, yaw]))
+    stage.add_reference_to_stage(model_path, Sdf.Path(stage_path))
+
+
+randomizer.generate_wrs_task(drop_func=drop_object)
 
 #_hsr = hsr.hsr()
 
