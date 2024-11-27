@@ -147,16 +147,16 @@ class gripper_trajectory_action_server(semuInternalState):
 
 
 class gripper_command_action_server(semuGripperInternalState):
-    def __init__(self, node=None, _dci=None):
+    def __init__(self, hsr, node=None, _dci=None):
         if is_ros2 is False:
             super().__init__()
         else:
             super().__init__(node, _dci)
         self.gripper_joints_paths = [
-            '/World/hsrb/hand_palm_link/hand_l_proximal_joint',
-            '/World/hsrb/hand_l_mimic_distal_link/hand_l_distal_joint',
-            '/World/hsrb/hand_palm_link/hand_r_proximal_joint',
-            '/World/hsrb/hand_r_mimic_distal_link/hand_r_distal_joint'
+            hsr.stage_path + '/hsrb/hand_palm_link/hand_l_proximal_joint',
+            hsr.stage_path + '/hsrb/hand_l_mimic_distal_link/hand_l_distal_joint',
+            hsr.stage_path + '/hsrb/hand_palm_link/hand_r_proximal_joint',
+            hsr.stage_path + '/hsrb/hand_r_mimic_distal_link/hand_r_distal_joint'
         ]
 
     def _set_joint_position(self, name: str, target_position: float) -> None:
@@ -168,13 +168,13 @@ class gripper_command_action_server(semuGripperInternalState):
 
 
 class gripper_apply_force_action_server(gripper_command_action_server):
-    def __init__(self, node=None, _dci=None):
+    def __init__(self, hsr, node=None, _dci=None):
         if is_ros2 is False:
-            super().__init__()
+            super().__init__(hsr)
             self._action_result_message = GripperApplyEffortResult()
             self._action_feedback_message = GripperApplyEffortFeedback()
         else:
-            super().__init__(node, _dci)
+            super().__init__(hsr, node, _dci)
             self._action_result_message = GripperApplyEffort.Result()
             self._action_feedback_message = GripperApplyEffort.Feedback()
         self._inverse_direction = False
@@ -316,7 +316,7 @@ def inverse_dynamics(input: CartSpace, state: VehicleState) -> JointSpace:
 
 class hsr:
 
-    def __init__(self, prefix='/hsrb', config=None) -> None:
+    def __init__(self, prefix='/hsrb', stage_path='/World', config=None) -> None:
         global is_ros2
 
         if config is None:
@@ -341,11 +341,12 @@ class hsr:
             self.get_ros_time = lambda t: rospy.Time(t)
 
         self.prefix = prefix
+        self.stage_path = stage_path
         self.simulation_context = None
         self.art = None
-        #self.hsr = stage.add_reference_to_stage("https://cdn.statically.io/gh/hsr-project/hsrb_usd/main/hsrb4s.usd", "/World" + self.prefix)
-        self.hsr = stage.add_reference_to_stage(os.path.dirname(os.path.abspath(__file__)) + "/usd/hsrb/hsrb4s.usd", "/World" + self.prefix)
-        #self.hsr = stage.add_reference_to_stage(os.path.dirname(os.path.abspath(__file__)) + "/usd/hsrc1s/hsrc1s.usd", "/World" + self.prefix)
+        #self.hsr = stage.add_reference_to_stage("https://cdn.statically.io/gh/hsr-project/hsrb_usd/main/hsrb4s.usd", self.stage_path + self.prefix)
+        self.hsr = stage.add_reference_to_stage(os.path.dirname(os.path.abspath(__file__)) + "/usd/hsrb/hsrb4s.usd", self.stage_path + self.prefix)
+        #self.hsr = stage.add_reference_to_stage(os.path.dirname(os.path.abspath(__file__)) + "/usd/hsrc1s/hsrc1s.usd", self.stage_path + self.prefix)
         self.set_base_joint_and_material()
 
         self.create_cameras()
@@ -358,7 +359,7 @@ class hsr:
         #self.base_odom_pub = self.create_publisher('/omni_base_controller/wheel_odom' if is_ros2 else self.prefix + '/base_controller/odom', Odometry)
         self.base_odom_pub = self.create_publisher('/odom' if is_ros2 else self.prefix + '/base_controller/odom', Odometry)
 
-        self.robots = ArticulationView(prim_paths_expr="/World" + self.prefix, name="hsr_view")
+        self.robots = ArticulationView(prim_paths_expr=self.stage_path + self.prefix, name="hsr_view")
         self.ft_sensor_pub = self.create_publisher(self.prefix + '/wrist_wrench/raw', WrenchStamped)
 
         # dynamic control can also be used to interact with the imported urdf.
@@ -375,7 +376,7 @@ class hsr:
 
         if is_ros2 is False:
             def init_action_server(srv, name, msg):
-                srv.articulation_path = '/World' + self.prefix
+                srv.articulation_path = self.stage_path + self.prefix
                 srv.usd_context = omni.usd.get_context()
                 srv.dci = self.dc
                 action_topic_name = self.prefix + "/" + name
@@ -426,17 +427,17 @@ class hsr:
             self.gripper_trajectory_action_server = gripper_trajectory_action_server()
             init_action_server(self.gripper_trajectory_action_server, 'gripper_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
 
-            self.gripper_apply_force_action_server = gripper_apply_force_action_server()
+            self.gripper_apply_force_action_server = gripper_apply_force_action_server(self)
             init_action_server(self.gripper_apply_force_action_server, 'gripper_controller/apply_force', GripperApplyEffortAction)
 
-            #self.gripper_command_action_server = gripper_command_action_server()
+            #self.gripper_command_action_server = gripper_command_action_server(self)
             #init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperCommandAction)
-            self.gripper_command_action_server = gripper_apply_force_action_server()
+            self.gripper_command_action_server = gripper_apply_force_action_server(self)
             self.gripper_command_action_server._inverse_direction = True
             init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperApplyEffortAction)
         else:  # ros2
             def init_action_server(srv, name, msg):
-                articulation_namespace = '/World' + self.prefix
+                articulation_namespace = self.stage_path + self.prefix
                 action_topic_name = "/" + name
                 srv.start(articulation_namespace, action_topic_name)
                 if False: #msg == FollowJointTrajectory:
@@ -477,12 +478,12 @@ class hsr:
             self.gripper_trajectory_action_server = gripper_trajectory_action_server(self.ros2node, self.dc)
             init_action_server(self.gripper_trajectory_action_server, 'gripper_controller/follow_joint_trajectory', FollowJointTrajectory)
 
-            self.gripper_apply_force_action_server = gripper_apply_force_action_server(self.ros2node, self.dc)
+            self.gripper_apply_force_action_server = gripper_apply_force_action_server(self, self.ros2node, self.dc)
             init_action_server(self.gripper_apply_force_action_server, 'gripper_controller/apply_force', GripperApplyEffort)
 
-            #self.gripper_command_action_server = gripper_command_action_server()
+            #self.gripper_command_action_server = gripper_command_action_server(self)
             #init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperCommand)
-            self.gripper_command_action_server = gripper_apply_force_action_server(self.ros2node, self.dc)
+            self.gripper_command_action_server = gripper_apply_force_action_server(self, self.ros2node, self.dc)
             self.gripper_command_action_server._inverse_direction = True
             init_action_server(self.gripper_command_action_server, 'gripper_controller/grasp', GripperApplyEffort)
 
@@ -490,7 +491,7 @@ class hsr:
         topic_prefix = '' if is_ros2 else self.prefix
 
         # Creating a Camera prim
-        l_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim('/World' + self.prefix + "/head_l_stereo_camera_link/Camera", "Camera"))
+        l_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim(self.stage_path + self.prefix + "/head_l_stereo_camera_link/Camera", "Camera"))
         xform_api = UsdGeom.XformCommonAPI(l_camera_prim)
         xform_api.SetRotate((180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
         l_camera_prim.GetHorizontalApertureAttr().Set(1280 * 0.003)
@@ -500,7 +501,7 @@ class hsr:
         l_camera_prim.GetFocusDistanceAttr().Set(400)
 
         # Creating a Camera prim
-        r_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim('/World' + self.prefix + "/head_r_stereo_camera_link/Camera", "Camera"))
+        r_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim(self.stage_path + self.prefix + "/head_r_stereo_camera_link/Camera", "Camera"))
         xform_api = UsdGeom.XformCommonAPI(r_camera_prim)
         xform_api.SetRotate((180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
         r_camera_prim.GetHorizontalApertureAttr().Set(1280 * 0.003)
@@ -510,7 +511,7 @@ class hsr:
         r_camera_prim.GetFocusDistanceAttr().Set(400)
 
         # Creating a Camera prim
-        rgbd_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim('/World' + self.prefix + "/head_rgbd_sensor_link/Camera", "Camera"))
+        rgbd_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim(self.stage_path + self.prefix + "/head_rgbd_sensor_link/Camera", "Camera"))
         xform_api = UsdGeom.XformCommonAPI(rgbd_camera_prim)
         xform_api.SetRotate((180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
         rgbd_camera_prim.GetHorizontalApertureAttr().Set(640 * 0.003)
@@ -520,7 +521,7 @@ class hsr:
         rgbd_camera_prim.GetFocusDistanceAttr().Set(400)
 
         # Creating a Camera prim
-        hand_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim('/World' + self.prefix + "/hand_camera_frame/Camera", "Camera"))
+        hand_camera_prim = UsdGeom.Camera(omni.usd.get_context().get_stage().DefinePrim(self.stage_path + self.prefix + "/hand_camera_frame/Camera", "Camera"))
         xform_api = UsdGeom.XformCommonAPI(hand_camera_prim)
         xform_api.SetRotate((180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
         hand_camera_prim.GetHorizontalApertureAttr().Set(640 * 0.003)
@@ -692,25 +693,25 @@ class hsr:
         set_targets(
             prim=stage.get_current_stage().GetPrimAtPath("/head_l_camera/createRenderProduct"),
             attribute="inputs:cameraPrim",
-            target_prim_paths=['/World' + self.prefix + "/head_l_stereo_camera_link/Camera"],
+            target_prim_paths=[self.stage_path + self.prefix + "/head_l_stereo_camera_link/Camera"],
         )
 
         set_targets(
             prim=stage.get_current_stage().GetPrimAtPath("/head_r_camera/createRenderProduct"),
             attribute="inputs:cameraPrim",
-            target_prim_paths=['/World' + self.prefix + "/head_r_stereo_camera_link/Camera"],
+            target_prim_paths=[self.stage_path + self.prefix + "/head_r_stereo_camera_link/Camera"],
         )
 
         set_targets(
             prim=stage.get_current_stage().GetPrimAtPath("/head_rgbd_camera/createRenderProduct"),
             attribute="inputs:cameraPrim",
-            target_prim_paths=['/World' + self.prefix + "/head_rgbd_sensor_link/Camera"],
+            target_prim_paths=[self.stage_path + self.prefix + "/head_rgbd_sensor_link/Camera"],
         )
 
         set_targets(
             prim=stage.get_current_stage().GetPrimAtPath("/hand_camera/createRenderProduct"),
             attribute="inputs:cameraPrim",
-            target_prim_paths=['/World' + self.prefix + "/hand_camera_frame/Camera"],
+            target_prim_paths=[self.stage_path + self.prefix + "/hand_camera_frame/Camera"],
         )
 
         # Run the ROS Camera graph once to generate ROS image publishers in SDGPipeline
@@ -724,7 +725,7 @@ class hsr:
         lidar_config = "Example_Rotary"
         _, sensor = omni.kit.commands.execute(
             "IsaacSensorCreateRtxLidar",
-            path='/World' + self.prefix + '/base_range_sensor_link/Lidar',
+            path=self.stage_path + self.prefix + '/base_range_sensor_link/Lidar',
             parent=None,
             config=lidar_config,
         )
@@ -737,13 +738,13 @@ class hsr:
     def create_imu(self) -> None:
         _, sensor = omni.kit.commands.execute(
             'IsaacSensorCreateImuSensor',
-            path='/World' + self.prefix + '/base_imu_frame/Imu_Sensor',
+            path=self.stage_path + self.prefix + '/base_imu_frame/Imu_Sensor',
             parent=None,
             sensor_period=-1
         )
         (self.ros_imu, _, _, _) = og.Controller.edit(
             {
-                "graph_path": "/imu_sensor",
+                "graph_path": self.stage_path + self.prefix + "/imu_sensor",
                 "evaluator_name": "execution",
             },
             {
@@ -768,15 +769,15 @@ class hsr:
             },
         )
         set_targets(
-            prim=stage.get_current_stage().GetPrimAtPath("/imu_sensor/readImu"),
+            prim=stage.get_current_stage().GetPrimAtPath(self.stage_path + self.prefix + "/imu_sensor/readImu"),
             attribute="inputs:imuPrim",
-            target_prim_paths=['/World' + self.prefix + '/base_imu_frame/Imu_Sensor'],
+            target_prim_paths=[self.stage_path + self.prefix + '/base_imu_frame/Imu_Sensor'],
         )
 
     def create_lidar(self) -> None:
         _, sensor = omni.kit.commands.execute(
             'RangeSensorCreateLidar',
-            path='/World' + self.prefix + '/base_range_sensor_link/Lidar',
+            path=self.stage_path + self.prefix + '/base_range_sensor_link/Lidar',
             parent=None,
             min_range=0.3,  # 0.05
             max_range=60.0,
@@ -824,7 +825,7 @@ class hsr:
         set_targets(
             prim=stage.get_current_stage().GetPrimAtPath("/lidar_sensor/readLidarBeams"),
             attribute="inputs:lidarPrim",
-            target_prim_paths=['/World' + self.prefix + "/base_range_sensor_link/Lidar"],
+            target_prim_paths=[self.stage_path + self.prefix + "/base_range_sensor_link/Lidar"],
         )
 
     def set_base_joint_and_material(self) -> None:
@@ -835,7 +836,7 @@ class hsr:
         for l in ['/base_l_passive_wheel_z_link/collisions', '/base_r_passive_wheel_z_link/collisions']:
             omni.kit.commands.execute('BindMaterialExt',
                                       material_path='/Caster',
-                                      prim_path=['/World' + self.prefix + l],
+                                      prim_path=[self.stage_path + self.prefix + l],
                                       strength=['weakerThanDescendants'],
                                       material_purpose='physics')
 
@@ -846,27 +847,27 @@ class hsr:
         for l in ['/base_l_drive_wheel_link/collisions', '/base_r_drive_wheel_link/collisions']:
             omni.kit.commands.execute('BindMaterialExt',
                                       material_path='/Tire',
-                                      prim_path=['/World' + self.prefix + l],
+                                      prim_path=[self.stage_path + self.prefix + l],
                                       strength=['weakerThanDescendants'],
                                       material_purpose='physics')
 
-        left_passive1_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath('/World' + self.prefix + "/base_l_passive_wheel_x_frame/base_l_passive_wheel_y_frame_joint"), "angular")
+        left_passive1_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath(self.stage_path + self.prefix + "/base_l_passive_wheel_x_frame/base_l_passive_wheel_y_frame_joint"), "angular")
         left_passive1_drive.GetDampingAttr().Set(0)
         left_passive1_drive.GetStiffnessAttr().Set(0)
-        left_passive2_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath('/World' + self.prefix + "/base_l_passive_wheel_y_frame/base_l_passive_wheel_z_joint"), "angular")
+        left_passive2_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath(self.stage_path + self.prefix + "/base_l_passive_wheel_y_frame/base_l_passive_wheel_z_joint"), "angular")
         left_passive2_drive.GetDampingAttr().Set(0)
         left_passive2_drive.GetStiffnessAttr().Set(0)
-        right_passive1_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath('/World' + self.prefix + "/base_r_passive_wheel_x_frame/base_r_passive_wheel_y_frame_joint"), "angular")
+        right_passive1_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath(self.stage_path + self.prefix + "/base_r_passive_wheel_x_frame/base_r_passive_wheel_y_frame_joint"), "angular")
         right_passive1_drive.GetDampingAttr().Set(0)
         right_passive1_drive.GetStiffnessAttr().Set(0)
-        right_passive2_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath('/World' + self.prefix + "/base_r_passive_wheel_y_frame/base_r_passive_wheel_z_joint"), "angular")
+        right_passive2_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath(self.stage_path + self.prefix + "/base_r_passive_wheel_y_frame/base_r_passive_wheel_z_joint"), "angular")
         right_passive2_drive.GetDampingAttr().Set(0)
         right_passive2_drive.GetStiffnessAttr().Set(0)
 
         # Get handle to the Drive API for both wheels
-        left_wheel_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath('/World' + self.prefix + "/base_roll_link/base_l_drive_wheel_joint"), "angular")
-        right_wheel_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath('/World' + self.prefix + "/base_roll_link/base_r_drive_wheel_joint"), "angular")
-        roll_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath('/World' + self.prefix + "/base_link/base_roll_joint"), "angular")
+        left_wheel_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath(self.stage_path + self.prefix + "/base_roll_link/base_l_drive_wheel_joint"), "angular")
+        right_wheel_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath(self.stage_path + self.prefix + "/base_roll_link/base_r_drive_wheel_joint"), "angular")
+        roll_drive = UsdPhysics.DriveAPI.Get(stage.get_current_stage().GetPrimAtPath(self.stage_path + self.prefix + "/base_link/base_roll_joint"), "angular")
 
         # Set the drive damping, which controls the strength of the velocity drive
         left_wheel_drive.GetDampingAttr().Set(15000)
@@ -952,7 +953,7 @@ class hsr:
         dt = self.simulation_context.current_time - self.prev_time
 
         if not self.art:
-            self.art = self.dc.get_articulation('/World' + self.prefix)
+            self.art = self.dc.get_articulation(self.stage_path + self.prefix)
             if self.art == _dynamic_control.INVALID_HANDLE:
                 print("{self.prefix} is not an articulation")
             self._joints = {}
