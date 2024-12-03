@@ -148,14 +148,19 @@ for i in range(len(contact_links)):
     ))
 
 
+actor_to_body_name_cache = {}
 def contact_report_event(ch, cd):
     for c in ch:
-        body1 = str(PhysicsSchemaTools.intToSdfPath(c.actor1)).split('/')[1]
+        try:
+            body1 = actor_to_body_name_cache[c.actor1]
+        except KeyError:
+            body1 = str(PhysicsSchemaTools.intToSdfPath(c.actor1)).split('/')[1]
+            actor_to_body_name_cache[c.actor1] = body1
         if body1 != 'background':
             print(f'Contact {body1}')
 
-
-get_physx_simulation_interface().subscribe_contact_report_events(contact_report_event)
+# this variable is unused, but it is required to continue the subscription
+_contact_report_event_sub = get_physx_simulation_interface().subscribe_contact_report_events(contact_report_event)
 
 # Start simulation
 kit.update()
