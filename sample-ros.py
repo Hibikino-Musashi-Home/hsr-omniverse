@@ -21,7 +21,10 @@ from omni.isaac.core.utils.rotations import euler_angles_to_quat
 import omni.kit.commands
 from omni.isaac.version import get_version
 import hsr
-from pxr import Sdf, Usd, UsdGeom, Gf, UsdPhysics
+from pxr import Sdf, Usd, UsdGeom, Gf, UsdPhysics, PhysxSchema, PhysicsSchemaTools
+from omni.physx import get_physx_simulation_interface
+from omni.isaac.sensor import ContactSensor
+from omni.isaac.sensor import _sensor
 
 sys.path.append(os.path.dirname(__file__) + '/tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/src')
 
@@ -125,6 +128,35 @@ create_prim(prim_path=hsr_stage_path, prim_type="Xform", translation=[-2.1, 1.2,
 
 _hsr = hsr.hsr(stage_path=hsr_stage_path)
 
+contact_links = [
+    "/hsrb/hsrb/base_link/collisions",
+    "/hsrb/hsrb/base_f_bumper_link/collisions",
+    "/hsrb/hsrb/base_b_bumper_link/collisions"
+]
+
+contact_sensors = []
+stage_handle = omni.usd.get_context().get_stage()
+for i in range(len(contact_links)):
+    contact_report_api = PhysxSchema.PhysxContactReportAPI.Apply(stage_handle.GetPrimAtPath(contact_links[i]))
+    contact_report_api.CreateThresholdAttr(0.0)
+    contact_sensors.append(ContactSensor(
+        prim_path=f'{contact_links[i]}/Contact_Sensor',
+        name="Contact_Sensor",
+        frequency=10,
+        min_threshold=0,
+        radius=-1
+    ))
+
+
+def contact_report_event(ch, cd):
+    for c in ch:
+        body1 = str(PhysicsSchemaTools.intToSdfPath(c.actor1)).split('/')[1]
+        if body1 != 'background':
+            print(f'Contact {body1}')
+
+
+get_physx_simulation_interface().subscribe_contact_report_events(contact_report_event)
+
 # Start simulation
 kit.update()
 simulation_context = SimulationContext(stage_units_in_meters=1.0)
@@ -150,7 +182,7 @@ def get_xform(stage, model_name):
             prim = stage.GetPrimAtPath(f'/{name}/hsrb')
         return UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
     except:
-        print(f'Failed to get xform for {model_name}')
+        #print(f'Failed to get xform for {model_name}')
         return Gf.Matrix4d()
 
 def handle_get_model_state(req):
