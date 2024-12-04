@@ -26,8 +26,6 @@ from omni.physx import get_physx_simulation_interface
 from omni.isaac.sensor import ContactSensor
 from omni.isaac.sensor import _sensor
 
-sys.path.append(os.path.dirname(__file__) + '/tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/src')
-
 from tmc_wrs_gazebo_worlds import randomizer
 
 is_ros2 = False
@@ -85,8 +83,8 @@ stage.add_reference_to_stage(assets_root_path + BACKGROUND_USD_PATH, BACKGROUND_
 model_names = []
 
 # Extract poses of objects from the world file
-world_file = os.path.dirname(os.path.abspath(__file__)) + "/tmc_wrs_gazebo/tmc_wrs_gazebo_worlds/worlds/wrs2020.world.xacro"
-tree = ET.ElementTree(ET.fromstring(xacro.process_file(world_file, mappings={'trofast_knob': 'true'}).toxml()))
+world_file = "/opt/ros/noetic/share/tmc_wrs_gazebo_worlds/worlds/wrs2020_knob.world"
+tree = ET.parse(world_file)
 root = tree.getroot()
 for i in root.findall('world/include'):
     model_name = i.find('name').text
@@ -128,6 +126,13 @@ create_prim(prim_path=hsr_stage_path, prim_type="Xform", translation=[-2.1, 1.2,
 
 _hsr = hsr.hsr(stage_path=hsr_stage_path)
 
+if is_ros2:
+    import std_msgs.msg
+    collision_detect_pub = _hsr.ros2node.create_publisher('/undesired_contact_detector/detect', std_msgs.msg.Bool, qos_profile=rclpy.qos.qos_profile_system_default)
+else:
+    import std_msgs.msg
+    collision_detect_pub = rospy.Publisher('/undesired_contact_detector/detect', std_msgs.msg.Bool, queue_size=10)
+
 contact_links = [
     "/hsrb/hsrb/base_link/collisions",
     "/hsrb/hsrb/base_f_bumper_link/collisions",
@@ -158,6 +163,8 @@ def contact_report_event(ch, cd):
             actor_to_body_name_cache[c.actor1] = body1
         if body1 != 'background':
             print(f'Contact {body1}')
+        if body1 == 'wrc_frame' or body1.startswith('task2a_'):
+            collision_detect_pub.publish(std_msgs.msg.Bool(True))
 
 # this variable is unused, but it is required to continue the subscription
 _contact_report_event_sub = get_physx_simulation_interface().subscribe_contact_report_events(contact_report_event)
