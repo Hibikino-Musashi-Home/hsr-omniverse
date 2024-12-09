@@ -220,8 +220,8 @@ if is_ros2:
         ret.success = True
         return ret
 
-    _hsr.ros2node.create_service(GetWorldProperties, '/gazebo/get_world_properties', handle_get_world_properties_ros2)
-    _hsr.ros2node.create_service(GetModelState, '/gazebo/get_model_state', handle_get_model_state_ros2)
+    _hsr.ros2node.create_service(GetWorldProperties, '/gazebo/get_world_properties', handle_get_world_properties_ros2, qos_profile=rclpy.qos.qos_profile_system_default)
+    _hsr.ros2node.create_service(GetModelState, '/gazebo/get_model_state', handle_get_model_state_ros2, qos_profile=rclpy.qos.qos_profile_system_default)
 else:
     def handle_get_world_properties(req):
         ret = GetWorldPropertiesResponse()
