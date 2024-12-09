@@ -97,4 +97,6 @@
         args="/hsrb/base_controller/odom /hsrb/odom" unless="$(arg use_laser_odom)" />
 
   <node pkg="tf" type="static_transform_publisher" name="world_map" args="0 0 0 0 0 0 /world /map 100" />
+
+  <include file="$(find tmc_gazebo_task_evaluators)/launch/robocup2021.launch"/>
 </launch>
