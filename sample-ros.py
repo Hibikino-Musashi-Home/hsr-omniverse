@@ -31,7 +31,7 @@ from tmc_wrs_gazebo_worlds import randomizer
 is_ros2 = False
 try:
     import rclpy
-    from gazebo_msgs.srv import GetWorldProperties, GetWorldProperties_Response as GetWorldPropertiesResponse, GetModelState, GetModelState_Response as GetModelStateResponse
+    from gazebo_msgs.srv import GetWorldProperties, GetModelState
     is_ros2 = True
 except ImportError:
     import rospy
@@ -46,7 +46,7 @@ try:
 except ImportError:
     pass
 
-viewports.set_camera_view(eye=np.array([1.2, 1.2, 0.8]), target=np.array([0, 0, 0.5]))
+viewports.set_camera_view(eye=np.array([3.7, 1.7, 5.0]), target=np.array([0, 0, 0]))
 
 create_prim(
     "/World/Light_1",
@@ -83,7 +83,10 @@ stage.add_reference_to_stage(assets_root_path + BACKGROUND_USD_PATH, BACKGROUND_
 model_names = []
 
 # Extract poses of objects from the world file
-world_file = "/opt/ros/noetic/share/tmc_wrs_gazebo_worlds/worlds/wrs2020_knob.world"
+if is_ros2:
+    world_file = "/ws/install/tmc_wrs_gazebo_worlds/share/tmc_wrs_gazebo_worlds/worlds/wrs2020_knob.world"
+else:
+    world_file = "/opt/ros/noetic/share/tmc_wrs_gazebo_worlds/worlds/wrs2020_knob.world"
 tree = ET.parse(world_file)
 root = tree.getroot()
 for i in root.findall('world/include'):
@@ -128,7 +131,7 @@ _hsr = hsr.hsr(stage_path=hsr_stage_path)
 
 if is_ros2:
     import std_msgs.msg
-    collision_detect_pub = _hsr.ros2node.create_publisher('/undesired_contact_detector/detect', std_msgs.msg.Bool, qos_profile=rclpy.qos.qos_profile_system_default)
+    collision_detect_pub = _hsr.ros2node.create_publisher(std_msgs.msg.Bool, '/undesired_contact_detector/detect', qos_profile=rclpy.qos.qos_profile_system_default)
 else:
     import std_msgs.msg
     collision_detect_pub = rospy.Publisher('/undesired_contact_detector/detect', std_msgs.msg.Bool, queue_size=10)
@@ -178,12 +181,6 @@ simulation_context.initialize_physics()
 omni.timeline.get_timeline_interface().play()
 
 # simulate gazebo ros APIs required for task evaluators
-def handle_get_world_properties(req):
-    ret = GetWorldPropertiesResponse()
-    ret.model_names = model_names
-    ret.success = True
-    return ret
-
 def get_xform(stage, model_name):
     try:
         name = model_name.replace('::link', '').replace('-', '_')
@@ -197,31 +194,62 @@ def get_xform(stage, model_name):
         #print(f'Failed to get xform for {model_name}')
         return Gf.Matrix4d()
 
-def handle_get_model_state(req):
-    stage = omni.usd.get_context().get_stage()
-    objxform = get_xform(stage, req.model_name)
-    refxform = get_xform(stage, req.relative_entity_name)
-    relpose = refxform.GetInverse() * objxform
-    translation = relpose.ExtractTranslation()
-    rotation = relpose.GetOrthonormalized().ExtractRotationQuat()
-    rotation_imaginary = rotation.GetImaginary()
-    # create response
-    ret = GetModelStateResponse()
-    ret.header.frame_id = req.relative_entity_name
-    ret.pose.position.x = translation[0]
-    ret.pose.position.y = translation[1]
-    ret.pose.position.z = translation[2]
-    ret.pose.orientation.x = rotation_imaginary[0]
-    ret.pose.orientation.y = rotation_imaginary[1]
-    ret.pose.orientation.z = rotation_imaginary[2]
-    ret.pose.orientation.w = rotation.GetReal()
-    ret.success = True
-    return ret
-
 if is_ros2:
-    _hsr.ros2node.create_service('/gazebo/get_world_properties', GetWorldProperties, handle_get_world_properties)
-    _hsr.ros2node.create_service('/gazebo/get_model_state', GetModelState, handle_get_model_state)
+    def handle_get_world_properties_ros2(req, ret):
+        ret.model_names = model_names
+        ret.success = True
+        return ret
+
+    def handle_get_model_state_ros2(req, ret):
+        stage = omni.usd.get_context().get_stage()
+        objxform = get_xform(stage, req.model_name)
+        refxform = get_xform(stage, req.relative_entity_name)
+        relpose = refxform.GetInverse() * objxform
+        translation = relpose.ExtractTranslation()
+        rotation = relpose.GetOrthonormalized().ExtractRotationQuat()
+        rotation_imaginary = rotation.GetImaginary()
+        # create response
+        ret.header.frame_id = req.relative_entity_name
+        ret.pose.position.x = translation[0]
+        ret.pose.position.y = translation[1]
+        ret.pose.position.z = translation[2]
+        ret.pose.orientation.x = rotation_imaginary[0]
+        ret.pose.orientation.y = rotation_imaginary[1]
+        ret.pose.orientation.z = rotation_imaginary[2]
+        ret.pose.orientation.w = rotation.GetReal()
+        ret.success = True
+        return ret
+
+    _hsr.ros2node.create_service(GetWorldProperties, '/gazebo/get_world_properties', handle_get_world_properties_ros2)
+    _hsr.ros2node.create_service(GetModelState, '/gazebo/get_model_state', handle_get_model_state_ros2)
 else:
+    def handle_get_world_properties(req):
+        ret = GetWorldPropertiesResponse()
+        ret.model_names = model_names
+        ret.success = True
+        return ret
+
+    def handle_get_model_state(req):
+        stage = omni.usd.get_context().get_stage()
+        objxform = get_xform(stage, req.model_name)
+        refxform = get_xform(stage, req.relative_entity_name)
+        relpose = refxform.GetInverse() * objxform
+        translation = relpose.ExtractTranslation()
+        rotation = relpose.GetOrthonormalized().ExtractRotationQuat()
+        rotation_imaginary = rotation.GetImaginary()
+        # create response
+        ret = GetModelStateResponse()
+        ret.header.frame_id = req.relative_entity_name
+        ret.pose.position.x = translation[0]
+        ret.pose.position.y = translation[1]
+        ret.pose.position.z = translation[2]
+        ret.pose.orientation.x = rotation_imaginary[0]
+        ret.pose.orientation.y = rotation_imaginary[1]
+        ret.pose.orientation.z = rotation_imaginary[2]
+        ret.pose.orientation.w = rotation.GetReal()
+        ret.success = True
+        return ret
+
     rospy.Service('/gazebo/get_world_properties', GetWorldProperties, handle_get_world_properties)
     rospy.Service('/gazebo/get_model_state', GetModelState, handle_get_model_state)
 
