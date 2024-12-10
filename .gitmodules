@@ -1,3 +1,6 @@
 [submodule "usd/hsrb"]
 	path = usd/hsrb
 	url = https://github.com/hsr-project/hsrb_usd.git
+[submodule "usd/wrs_models"]
+	path = usd/wrs_models
+	url = https://github.com/hsr-project/tmc_wrs_omniverse_models.git

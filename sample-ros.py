@@ -106,7 +106,7 @@ for i in root.findall('world/include'):
     model_uri = i.find('uri').text
     (x, y, z, er, ep, ey) = [float(n) for n in i.find('pose').text.split(' ')]
     stage_path = f'/{model_name}'
-    model_path = model_uri.replace('model://', os.path.dirname(os.path.abspath(__file__)) + '/usd/wrc_models/') + '/model.usd'
+    model_path = model_uri.replace('model://', os.path.dirname(os.path.abspath(__file__)) + '/usd/wrs_models/') + '/model.usd'
     if not os.path.exists(model_path):
         continue
     create_prim(prim_path=stage_path, prim_type="Xform", translation=[x, y, z], orientation=euler_angles_to_quat([er, ep, ey]))
@@ -126,7 +126,7 @@ def drop_object(gazebo_name, name, x, y, z, yaw):
     global model_names
     print(f'Drop {name} ({x}, {y}, {z}, {yaw})')
     stage_path = f'/{gazebo_name.replace("-", "_")}'
-    model_path = os.path.dirname(os.path.abspath(__file__)) + '/usd/wrc_models/' + name + '/model.usd'
+    model_path = os.path.dirname(os.path.abspath(__file__)) + '/usd/wrs_models/' + name + '/model.usd'
     if not os.path.exists(model_path):
         return
     create_prim(prim_path=stage_path, prim_type="Xform", translation=[x, y, z], orientation=euler_angles_to_quat([0, 0, yaw]))
