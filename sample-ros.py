@@ -25,6 +25,7 @@ from pxr import Sdf, Usd, UsdGeom, Gf, UsdPhysics, PhysxSchema, PhysicsSchemaToo
 from omni.physx import get_physx_simulation_interface
 from omni.isaac.sensor import ContactSensor
 from omni.isaac.sensor import _sensor
+from omni.isaac.core.materials.physics_material import PhysicsMaterial
 
 from tmc_wrs_gazebo_worlds import randomizer
 
@@ -79,6 +80,17 @@ BACKGROUND_STAGE_PATH = "/background"
 BACKGROUND_USD_PATH = "/Isaac/Environments/Grid/default_environment.usd"
 
 stage.add_reference_to_stage(assets_root_path + BACKGROUND_USD_PATH, BACKGROUND_STAGE_PATH)
+
+# adjust friction of the floor
+floor_material = PhysicsMaterial(
+    prim_path='/Floor',
+    static_friction=60.0,
+    dynamic_friction=60.0)
+omni.kit.commands.execute('BindMaterialExt',
+                            material_path='/Floor',
+                            prim_path=[BACKGROUND_STAGE_PATH + '/GroundPlane/CollisionPlane'],
+                            strength=['weakerThanDescendants'],
+                            material_purpose='physics')
 
 model_names = []
 
