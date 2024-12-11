@@ -26,13 +26,18 @@ RUN apt update && \
     apt install -y \
     git g++ make python-is-python3 python3-pip \
     python3-colcon-common-extensions \
+    libeigen3-dev \
+    libpoco-dev \
     ros-humble-ros2cli \
     ros-humble-ros2cli-common-extensions \
     ros-humble-rclpy \
+    ros-humble-xacro \
     ros-humble-rosidl-default-generators \
+    ros-humble-rclpy \
     ros-humble-tf-transformations \
     ros-humble-tf2 \
     ros-humble-tf2-msgs \
+    ros-humble-tf2-geometry-msgs \
     ros-humble-tf2-ros-py \
     ros-humble-actionlib-msgs \
     ros-humble-geometry-msgs \
@@ -41,6 +46,7 @@ RUN apt update && \
     ros-humble-sensor-msgs \
     ros-humble-nav-msgs \
     ros-humble-vision-msgs \
+    ros-humble-gazebo-msgs \
     && \
     apt clean
 RUN /isaac-sim/python.sh -m pip install transforms3d
@@ -49,6 +55,8 @@ RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
     mkdir -p /ws/src && \
     cd /ws/src && \
     git clone -b foxy https://github.com/hsr-project/tmc_control_msgs.git && \
+    git clone -b feature/ros2 https://github.com/hsr-project/tmc_wrs_gazebo.git && \
+    git clone -b feature/ros2 https://github.com/hsr-project/tmc_gazebo_task_evaluators.git && \
     cd .. && \
     colcon build
 ADD ros_entrypoint.sh.ros2 /ros_entrypoint.sh
@@ -69,6 +77,8 @@ ADD usd /app/usd
 ENV NVIDIA_VISIBLE_DEVICES \
         ${NVIDIA_VISIBLE_DEVICES:-all}
 ENV NVIDIA_DRIVER_CAPABILITIES all
+
+ENV PYTHONUNBUFFERED 1
 
 ENTRYPOINT [ "/ros_entrypoint.sh" ]
 
