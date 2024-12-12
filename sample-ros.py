@@ -140,6 +140,7 @@ hsr_stage_path = "/hsrb"
 create_prim(prim_path=hsr_stage_path, prim_type="Xform", translation=[-2.1, 1.2, 0], orientation=euler_angles_to_quat([0, 0, -math.pi/2]))
 
 _hsr = hsr.hsr(stage_path=hsr_stage_path)
+model_names.append('hsrb')
 
 if is_ros2:
     import std_msgs.msg
@@ -169,7 +170,9 @@ for i in range(len(contact_links)):
 
 
 actor_to_body_name_cache = {}
+prev_contact = None
 def contact_report_event(ch, cd):
+    global prev_contact
     for c in ch:
         try:
             body1 = actor_to_body_name_cache[c.actor1]
@@ -177,9 +180,11 @@ def contact_report_event(ch, cd):
             body1 = str(PhysicsSchemaTools.intToSdfPath(c.actor1)).split('/')[1]
             actor_to_body_name_cache[c.actor1] = body1
         if body1 != 'background':
-            print(f'Contact {body1}')
+            if prev_contact != body1:
+                print(f'Contact {body1}')
+                prev_contact = body1
         if body1 == 'wrc_frame' or body1.startswith('task2a_'):
-            collision_detect_pub.publish(std_msgs.msg.Bool(True))
+            collision_detect_pub.publish(std_msgs.msg.Bool(data=True))
 
 # this variable is unused, but it is required to continue the subscription
 _contact_report_event_sub = get_physx_simulation_interface().subscribe_contact_report_events(contact_report_event)
@@ -200,7 +205,7 @@ def get_xform(stage, model_name):
         if not prim.IsValid():
             prim = stage.GetPrimAtPath(f'/{name}/body')
         if not prim.IsValid():
-            prim = stage.GetPrimAtPath(f'/{name}/hsrb')
+            prim = stage.GetPrimAtPath(f'/{name}/hsrb/base_footprint')
         return UsdGeom.Xformable(prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
     except:
         #print(f'Failed to get xform for {model_name}')
