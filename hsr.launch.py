@@ -77,6 +77,18 @@ def generate_launch_description():
         ]
     )
 
+    sensor_frames = GroupAction(
+        actions=[
+            IncludeLaunchDescription(
+                XMLLaunchDescriptionSource(
+                    [
+                        'hsrb_sensor_frames.launch.xml',
+                    ]
+                ),
+            )
+        ]
+    )
+
     joint_state_publisher = Node(
         package='joint_state_publisher',
         executable='joint_state_publisher',
@@ -149,6 +161,7 @@ def generate_launch_description():
 
     nodes = [
         relay_node,
+        sensor_frames,
         joint_state_publisher,
         robot_state_publisher,
         nav,

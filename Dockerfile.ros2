@@ -74,6 +74,7 @@ RUN curl -sSL https://github.com/hsr-project/hsrb_rosnav/raw/refs/heads/master/h
 
 ADD hsr.launch.py /hsr.launch.py
 ADD hsrb_relay_topics.launch.xml /hsrb_relay_topics.launch.xml
+ADD hsrb_sensor_frames.launch.xml /hsrb_sensor_frames.launch.xml
 ADD hsr-omniverse.rviz /hsr-omniverse.rviz
 
 ADD ros_entrypoint.sh.ros2 /ros_entrypoint.sh
