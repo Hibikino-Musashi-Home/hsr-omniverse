@@ -115,7 +115,12 @@ def generate_launch_description():
                 ),
                 launch_arguments={
                     'use_sim_time': 'true',
-                    'map': '/map.yaml'
+                    'map': os.path.join(
+                        get_package_share_directory('tmc_wrs_gazebo_worlds'),
+                        'maps',
+                        'wrs2020',
+                        'map.yaml'
+                    )
                 }.items(),
             ),
         ]

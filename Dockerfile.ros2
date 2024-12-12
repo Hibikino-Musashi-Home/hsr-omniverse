@@ -63,6 +63,7 @@ RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
     rm -r tmc_manipulation_base/tmc_collision_detector && \
     rm -r tmc_manipulation_base/tmc_robot_collision_detector && \
     git clone -b feature/ros2 https://github.com/hsr-project/tmc_gazebo_task_evaluators.git && \
+    git clone -b feature/ros2 https://github.com/hsr-project/tmc_wrs_gazebo.git && \
     cd .. && \
     colcon build
 

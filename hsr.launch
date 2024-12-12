@@ -84,7 +84,7 @@
   </node>
 
   <!-- rosnav -->
-  <arg name="map_file" default="$(find hsrb_rosnav_config)/maps/white_space/map.yaml"/>
+  <arg name="map_file" default="$(find tmc_wrs_gazebo_worlds)/maps/wrs2020/map.yaml"/>
   <include file="$(find hsrb_rosnav_config)/launch/hsrb_nav.launch">
     <arg name="map_file" value="$(arg map_file)"/>
     <arg name="localization_type" value="iris_lama_loc2d"/>

@@ -41,6 +41,7 @@ RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
     git clone https://github.com/devrt/mobile-manipulator-tools.git && \
     git clone https://github.com/hsr-project/hsrb_rosnav.git && \
     git clone https://github.com/hsr-project/tmc_gazebo_task_evaluators.git -b feature/gazeboless && \
+    git clone https://github.com/hsr-project/tmc_wrs_gazebo.git && \
     git clone https://github.com/iris-ua/iris_lama.git && \
     git clone https://github.com/iris-ua/iris_lama_ros.git && \
     rm -rf mobile-manipulator-tools/cmd_vel_controller && \
