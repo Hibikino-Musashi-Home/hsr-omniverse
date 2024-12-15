@@ -221,7 +221,7 @@ if is_ros2:
         stage = omni.usd.get_context().get_stage()
         objxform = get_xform(stage, req.model_name)
         refxform = get_xform(stage, req.relative_entity_name)
-        relpose = refxform.GetInverse() * objxform
+        relpose = objxform * refxform.GetInverse()
         translation = relpose.ExtractTranslation()
         rotation = relpose.GetOrthonormalized().ExtractRotationQuat()
         rotation_imaginary = rotation.GetImaginary()
@@ -250,7 +250,7 @@ else:
         stage = omni.usd.get_context().get_stage()
         objxform = get_xform(stage, req.model_name)
         refxform = get_xform(stage, req.relative_entity_name)
-        relpose = refxform.GetInverse() * objxform
+        relpose = objxform * refxform.GetInverse()
         translation = relpose.ExtractTranslation()
         rotation = relpose.GetOrthonormalized().ExtractRotationQuat()
         rotation_imaginary = rotation.GetImaginary()
