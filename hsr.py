@@ -289,29 +289,58 @@ class VehicleState:
         self.steer_angle = 0.0
 
 
-# Dynamics of offset diff drive vehicle
-#  Equations are from the paper written by Masayoshi Wada etal.
-#  https://www.jstage.jst.go.jp/article/jrsj1983/18/8/18_8_1166/_pdf
-def forward_dynamics(input: JointSpace, state: VehicleState) -> CartSpace:
-    global wheel_separation, wheel_offset, wheel_radius
-    cos_s = math.cos(state.steer_angle)
-    sin_s = math.sin(state.steer_angle)
-    output = CartSpace()
-    output.dot_x = (wheel_radius / 2.0 * cos_s - wheel_radius * wheel_offset / wheel_separation * sin_s) * input.vel_wheel_r + (wheel_radius / 2.0 * cos_s + wheel_radius * wheel_offset / wheel_separation * sin_s) * input.vel_wheel_l
-    output.dot_y = (wheel_radius / 2.0 * sin_s + wheel_radius * wheel_offset / wheel_separation * cos_s) * input.vel_wheel_r + (wheel_radius / 2.0 * sin_s - wheel_radius * wheel_offset / wheel_separation * cos_s) * input.vel_wheel_l
-    output.dot_r = wheel_radius / wheel_separation * input.vel_wheel_r - wheel_radius / wheel_separation * input.vel_wheel_l - input.vel_steer
-    return output
+class VehicleDynamics:
+    """
+    Dynamics of offset diff drive vehicle
+     Equations are from the paper written by Masayoshi Wada etal.
+     https://www.jstage.jst.go.jp/article/jrsj1983/18/8/18_8_1166/_pdf
+    """
+
+    def __init__(self, wheel_radius: float, wheel_separation: float, wheel_offset: float) -> None:
+        self._wheel_radius = wheel_radius
+        self._wheel_separation = wheel_separation
+        self._wheel_offset = wheel_offset
+
+    def forward(self, joint_space: JointSpace, state: VehicleState) -> CartSpace:
+        cos_s = math.cos(state.steer_angle)
+        sin_s = math.sin(state.steer_angle)
+        output = CartSpace()
+        output.dot_x = (self._wheel_radius / 2.0 * cos_s - self._wheel_radius * self._wheel_offset / self._wheel_separation * sin_s) * joint_space.vel_wheel_r + (self._wheel_radius / 2.0 * cos_s + self._wheel_radius * self._wheel_offset / self._wheel_separation * sin_s) * joint_space.vel_wheel_l
+        output.dot_y = (self._wheel_radius / 2.0 * sin_s + self._wheel_radius * self._wheel_offset / self._wheel_separation * cos_s) * joint_space.vel_wheel_r + (self._wheel_radius / 2.0 * sin_s - self._wheel_radius * self._wheel_offset / self._wheel_separation * cos_s) * joint_space.vel_wheel_l
+        output.dot_r = self._wheel_radius / self._wheel_separation * joint_space.vel_wheel_r - self._wheel_radius / self._wheel_separation * joint_space.vel_wheel_l - joint_space.vel_steer
+        return output
+
+    def inverse(self, cart_space: CartSpace, state: VehicleState) -> JointSpace:
+        cos_s = math.cos(state.steer_angle)
+        sin_s = math.sin(state.steer_angle)
+        output = JointSpace()
+        output.vel_wheel_r = (cos_s / self._wheel_radius - self._wheel_separation * sin_s / 2.0 / self._wheel_radius / self._wheel_offset) * cart_space.dot_x + (sin_s / self._wheel_radius + self._wheel_separation * cos_s / 2.0 / self._wheel_radius / self._wheel_offset) * cart_space.dot_y
+        output.vel_wheel_l = (cos_s / self._wheel_radius + self._wheel_separation * sin_s / 2.0 / self._wheel_radius / self._wheel_offset) * cart_space.dot_x + (sin_s / self._wheel_radius - self._wheel_separation * cos_s / 2.0 / self._wheel_radius / self._wheel_offset) * cart_space.dot_y
+        output.vel_steer = -sin_s / self._wheel_offset * cart_space.dot_x + cos_s / self._wheel_offset * cart_space.dot_y - cart_space.dot_r
+        return output
 
 
-def inverse_dynamics(input: CartSpace, state: VehicleState) -> JointSpace:
-    global wheel_separation, wheel_offset, wheel_radius
-    cos_s = math.cos(state.steer_angle)
-    sin_s = math.sin(state.steer_angle)
-    output = JointSpace()
-    output.vel_wheel_r = (cos_s / wheel_radius - wheel_separation * sin_s / 2.0 / wheel_radius / wheel_offset) * input.dot_x + (sin_s / wheel_radius + wheel_separation * cos_s / 2.0 / wheel_radius / wheel_offset) * input.dot_y
-    output.vel_wheel_l = (cos_s / wheel_radius + wheel_separation * sin_s / 2.0 / wheel_radius / wheel_offset) * input.dot_x + (sin_s / wheel_radius - wheel_separation * cos_s / 2.0 / wheel_radius / wheel_offset) * input.dot_y
-    output.vel_steer = -sin_s / wheel_offset * input.dot_x + cos_s / wheel_offset * input.dot_y - input.dot_r
-    return output
+class WheelOdometry:
+    def __init__(self) -> None:
+        self.pose = BaseOdometry()
+
+    def integrate(self, cart_velocity: CartSpace, dt: float):
+        diff_r = cart_velocity.dot_r * dt
+        # Runge-Kutta 2nd order integration in heading frame
+        cosr = math.cos(self.pose.ang + 0.5 * diff_r)
+        sinr = math.sin(self.pose.ang + 0.5 * diff_r)
+        world_dot_x = cart_velocity.dot_x * cosr - cart_velocity.dot_y * sinr
+        world_dot_y = cart_velocity.dot_x * sinr + cart_velocity.dot_y * cosr
+        if dt > 0.0:
+            self.pose.x += world_dot_x * dt
+            self.pose.y += world_dot_y * dt
+            self.pose.ang += diff_r
+        return world_dot_x, world_dot_y
+
+    def set_pose(self, x: float, y: float, ang: float) -> None:
+        self.pose.x = x
+        self.pose.y = y
+        self.pose.ang = ang
 
 
 class hsr:
@@ -368,7 +397,8 @@ class hsr:
         self.cmd_vel_msg = None
         self.last_cmd_vel_time = 0.0
         self.create_subscriber("/omni_base_controller/cmd_vel" if is_ros2 else self.prefix + "/command_velocity", Twist, self.on_cmd_vel)
-        self.odometry_ = BaseOdometry()
+        self.vehicle_dynamics = VehicleDynamics(wheel_radius, wheel_separation, wheel_offset)
+        self.odometry_estimator = WheelOdometry()
         self.vel_limit_steer_ = 8.0
         self.vel_limit_wheel_ = 8.0
 
@@ -916,10 +946,9 @@ class hsr:
         #]
         self.laser_odom_pub.publish(odom)
 
-        self.odometry_.x = msg.pose.position.x
-        self.odometry_.y = msg.pose.position.y
         q = msg.pose.orientation
-        self.odometry_.ang = euler_from_quaternion(q.x, q.y, q.z, q.w)[2]
+        yaw = euler_from_quaternion(q.x, q.y, q.z, q.w)[2]
+        self.odometry_estimator.set_pose(msg.pose.position.x, msg.pose.position.y, yaw)
 
     def publish_joint_states(self):
         js = JointState()
@@ -938,7 +967,7 @@ class hsr:
             js.velocity.append(st.vel)
             js.effort.append(st.effort * 1000.0)
         js.name = js.name + ['odom_x', 'odom_y', 'odom_t']
-        js.position.extend([self.odometry_.x, self.odometry_.y, self.odometry_.ang])
+        js.position.extend([self.odometry_estimator.pose.x, self.odometry_estimator.pose.y, self.odometry_estimator.pose.ang])
         js.velocity.extend([0, 0, 0])
         js.effort.extend([0, 0, 0])
         self.joint_state_pub.publish(js)
@@ -985,26 +1014,19 @@ class hsr:
         joint_param_.vel_steer = roll_state.vel
 
         # Calculate cartesian space velocities by using forward dynamics equations
-        cartesian_param_ = forward_dynamics(joint_param_, state_)
+        cartesian_param_ = self.vehicle_dynamics.forward(joint_param_, state_)
 
         # Integrate velocities to update wheel odometry
-        diff_r = cartesian_param_.dot_r * dt
-        cosr = math.cos(self.odometry_.ang + 0.5 * diff_r)  # use Runge-Kutta 2nd
-        sinr = math.sin(self.odometry_.ang + 0.5 * diff_r)
-        abs_dot_x = cartesian_param_.dot_x * cosr - cartesian_param_.dot_y * sinr
-        abs_dot_y = cartesian_param_.dot_x * sinr + cartesian_param_.dot_y * cosr
-        self.odometry_.x += abs_dot_x * dt
-        self.odometry_.y += abs_dot_y * dt
-        self.odometry_.ang += diff_r
+        abs_dot_x, abs_dot_y = self.odometry_estimator.integrate(cartesian_param_, dt)
 
         odom = Odometry()
         odom.header.stamp = self.get_ros_time(self.simulation_context.current_time)
         odom.header.frame_id = "odom" if is_ros2 else "world"
         odom.child_frame_id = "base_footprint"
-        odom.pose.pose.position.x = self.odometry_.x
-        odom.pose.pose.position.y = self.odometry_.y
+        odom.pose.pose.position.x = self.odometry_estimator.pose.x
+        odom.pose.pose.position.y = self.odometry_estimator.pose.y
         odom.pose.pose.position.z = 0.0
-        q = quaternion_from_euler(0, 0, self.odometry_.ang)
+        q = quaternion_from_euler(0, 0, self.odometry_estimator.pose.ang)
         odom.pose.pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
         odom.pose.covariance = [
             0.001, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -1035,21 +1057,21 @@ class hsr:
             base_odom_tf.header.stamp = odom.header.stamp
             base_odom_tf.header.frame_id = "odom"
             base_odom_tf.child_frame_id = "base_footprint"
-            base_odom_tf.transform.translation.x = self.odometry_.x
-            base_odom_tf.transform.translation.y = self.odometry_.y
+            base_odom_tf.transform.translation.x = self.odometry_estimator.pose.x
+            base_odom_tf.transform.translation.y = self.odometry_estimator.pose.y
             base_odom_tf.transform.translation.z = 0.0
-            q = quaternion_from_euler(0, 0, self.odometry_.ang)
+            q = quaternion_from_euler(0, 0, self.odometry_estimator.pose.ang)
             base_odom_tf.transform.rotation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
             self.tf_broadcaster.sendTransform(base_odom_tf)
 
         cmd = CartSpace()
         if self.odom_trajectory_action_server._action_goal is not None:
-            self.odom_trajectory_action_server._odometry = self.odometry_
-            cmd.dot_x = self.odom_trajectory_action_server._joints['odom_x'] - self.odometry_.x
-            cmd.dot_y = self.odom_trajectory_action_server._joints['odom_y'] - self.odometry_.y
-            cmd.dot_r = self.odom_trajectory_action_server._joints['odom_t'] - self.odometry_.ang
+            self.odom_trajectory_action_server._odometry = self.odometry_estimator.pose
+            cmd.dot_x = self.odom_trajectory_action_server._joints['odom_x'] - self.odometry_estimator.pose.x
+            cmd.dot_y = self.odom_trajectory_action_server._joints['odom_y'] - self.odometry_estimator.pose.y
+            cmd.dot_r = self.odom_trajectory_action_server._joints['odom_t'] - self.odometry_estimator.pose.ang
         elif self.last_cmd_vel_time + 2.0 > self.simulation_context.current_time and self.cmd_vel_msg is not None:
-            ang = self.odometry_.ang + 0.5 * self.cmd_vel_msg.angular.z * dt
+            ang = self.odometry_estimator.pose.ang + 0.5 * self.cmd_vel_msg.angular.z * dt
             cosr = math.cos(ang)
             sinr = math.sin(ang)
             cmd.dot_x = self.cmd_vel_msg.linear.x * cosr - self.cmd_vel_msg.linear.y * sinr
@@ -1058,14 +1080,14 @@ class hsr:
 
         relcmd = CartSpace()
         diff_r = cmd.dot_r * dt
-        ang = self.odometry_.ang + 0.5 * diff_r  # use Runge-Kutta 2nd
+        ang = self.odometry_estimator.pose.ang + 0.5 * diff_r  # use Runge-Kutta 2nd
         cosr = math.cos(-ang)
         sinr = math.sin(-ang)
         relcmd.dot_x = cmd.dot_x * cosr - cmd.dot_y * sinr
         relcmd.dot_y = cmd.dot_x * sinr + cmd.dot_y * cosr
         relcmd.dot_r = diff_r / dt
 
-        jcmd = inverse_dynamics(relcmd, state_)
+        jcmd = self.vehicle_dynamics.inverse(relcmd, state_)
 
         # apply velocity limits
         ratio = abs(jcmd.vel_steer) / self.vel_limit_steer_
