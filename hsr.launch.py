@@ -164,6 +164,16 @@ def generate_launch_description():
         ]
     )
 
+    odom = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            os.path.join(
+                get_package_share_directory('hsrb_bringup'),
+                'launch',
+                'odoms.py'
+            )
+        ])
+    )
+
     nodes = [
         relay_node,
         sensor_frames,
@@ -171,6 +181,7 @@ def generate_launch_description():
         robot_state_publisher,
         nav,
         moveit,
+        odom,
         task_evaluators
     ]
 

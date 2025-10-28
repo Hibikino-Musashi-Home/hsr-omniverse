@@ -383,10 +383,13 @@ class hsr:
 
         self.create_imu()
 
-        self.laserscan_pose_sub = self.create_subscriber(self.prefix + '/laser_scan_matcher/pose', PoseStamped, self.on_laserscan_pose)
-        self.laser_odom_pub = self.create_publisher(self.prefix + '/laser_odom', Odometry)
-        #self.base_odom_pub = self.create_publisher('/omni_base_controller/wheel_odom' if is_ros2 else self.prefix + '/base_controller/odom', Odometry)
-        self.base_odom_pub = self.create_publisher('/odom' if is_ros2 else self.prefix + '/base_controller/odom', Odometry)
+        if is_ros2:
+            self.laserscan_pose_sub = self.create_subscriber('/laser_odom', Odometry, self.on_laserscan_odom)
+            self.base_odom_pub = self.create_publisher('/omni_base_controller/wheel_odom', Odometry)
+        else:
+            self.laserscan_pose_sub = self.create_subscriber(self.prefix + '/laser_scan_matcher/pose', PoseStamped, self.on_laserscan_pose)
+            self.laser_odom_pub = self.create_publisher(self.prefix + '/laser_odom', Odometry)
+            self.base_odom_pub = self.create_publisher('/odom', Odometry)
 
         self.robots = ArticulationView(prim_paths_expr=self.stage_path + self.prefix, name="hsr_view")
         self.ft_sensor_pub = self.create_publisher(self.prefix + '/wrist_wrench/raw', WrenchStamped)
@@ -915,36 +918,44 @@ class hsr:
             self.cmd_vel_msg = msg
             self.last_cmd_vel_time = self.simulation_context.current_time
 
+    def on_laserscan_odom(self, msg):
+        posestamped = PoseStamped()
+        posestamped.header.stamp = msg.header.stamp
+        posestamped.header.frame_id = "world"
+        posestamped.pose = msg.pose.pose
+        self.on_laserscan_pose(posestamped)
+
     def on_laserscan_pose(self, msg):
-        odom = Odometry()
-        odom.header.stamp = msg.header.stamp
-        odom.header.frame_id = "world"
-        odom.child_frame_id = "base_footprint"
-        odom.pose.pose = msg.pose
-        odom.pose.covariance = [
-            0.001, 0, 0, 0, 0, 0,
-            0, 0.001, 0, 0, 0, 0,
-            0, 0, 100000.0, 0, 0, 0,
-            0, 0, 0, 100000.0, 0, 0,
-            0, 0, 0, 0, 100000.0, 0,
-            0, 0, 0, 0, 0, 1000.0,
-        ]
-        #if self.imu_reading:
-        #    odom.twist.twist.linear.x = self.imu_reading.lin_acc_x  # TODO: convert to velocity
-        #    odom.twist.twist.linear.y = self.imu_reading.lin_acc_y
-        #    odom.twist.twist.linear.z = self.imu_reading.lin_acc_z
-        #    odom.twist.twist.angular.x = self.imu_reading.ang_vel_x
-        #    odom.twist.twist.angular.y = self.imu_reading.ang_vel_y
-        #    odom.twist.twist.angular.z = self.imu_reading.ang_vel_z
-        #odom.twist.covariance = [
-        #    0.001, 0, 0, 0, 0, 0,
-        #    0, 0.001, 0, 0, 0, 0,
-        #    0, 0, 100000.0, 0, 0, 0,
-        #    0, 0, 0, 100000.0, 0, 0,
-        #    0, 0, 0, 0, 100000.0, 0,
-        #    0, 0, 0, 0, 0, 1000.0,
-        #]
-        self.laser_odom_pub.publish(odom)
+        if not is_ros2:
+            odom = Odometry()
+            odom.header.stamp = msg.header.stamp
+            odom.header.frame_id = "world"
+            odom.child_frame_id = "base_footprint"
+            odom.pose.pose = msg.pose
+            odom.pose.covariance = [
+                0.001, 0, 0, 0, 0, 0,
+                0, 0.001, 0, 0, 0, 0,
+                0, 0, 100000.0, 0, 0, 0,
+                0, 0, 0, 100000.0, 0, 0,
+                0, 0, 0, 0, 100000.0, 0,
+                0, 0, 0, 0, 0, 1000.0,
+            ]
+            #if self.imu_reading:
+            #    odom.twist.twist.linear.x = self.imu_reading.lin_acc_x  # TODO: convert to velocity
+            #    odom.twist.twist.linear.y = self.imu_reading.lin_acc_y
+            #    odom.twist.twist.linear.z = self.imu_reading.lin_acc_z
+            #    odom.twist.twist.angular.x = self.imu_reading.ang_vel_x
+            #    odom.twist.twist.angular.y = self.imu_reading.ang_vel_y
+            #    odom.twist.twist.angular.z = self.imu_reading.ang_vel_z
+            #odom.twist.covariance = [
+            #    0.001, 0, 0, 0, 0, 0,
+            #    0, 0.001, 0, 0, 0, 0,
+            #    0, 0, 100000.0, 0, 0, 0,
+            #    0, 0, 0, 100000.0, 0, 0,
+            #    0, 0, 0, 0, 100000.0, 0,
+            #    0, 0, 0, 0, 0, 1000.0,
+            #]
+            self.laser_odom_pub.publish(odom)
 
         q = msg.pose.orientation
         yaw = euler_from_quaternion(q.x, q.y, q.z, q.w)[2]
@@ -1051,18 +1062,6 @@ class hsr:
             0.0, 0.0, 0.0, 0.0, 0.0, 1000.0,
         ]
         self.base_odom_pub.publish(odom)
-
-        if is_ros2:
-            base_odom_tf = TransformStamped()
-            base_odom_tf.header.stamp = odom.header.stamp
-            base_odom_tf.header.frame_id = "odom"
-            base_odom_tf.child_frame_id = "base_footprint"
-            base_odom_tf.transform.translation.x = self.odometry_estimator.pose.x
-            base_odom_tf.transform.translation.y = self.odometry_estimator.pose.y
-            base_odom_tf.transform.translation.z = 0.0
-            q = quaternion_from_euler(0, 0, self.odometry_estimator.pose.ang)
-            base_odom_tf.transform.rotation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
-            self.tf_broadcaster.sendTransform(base_odom_tf)
 
         cmd = CartSpace()
         if self.odom_trajectory_action_server._action_goal is not None:
