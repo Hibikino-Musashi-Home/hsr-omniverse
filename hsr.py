@@ -51,6 +51,8 @@ except ImportError:
     from nav_msgs.msg import Odometry
     from tf2_ros import TransformBroadcaster
     from tmc_control_msgs.action import GripperApplyEffort
+    from rcl_interfaces.srv import GetParameters
+    from rcl_interfaces.msg import ParameterValue, ParameterType
     import tf_transformations
     def quaternion_from_euler(r, p, y):
         return tf_transformations.quaternion_from_euler(r, p, y)
@@ -360,6 +362,8 @@ class hsr:
             self.create_publisher_reliable = lambda t, d: self.ros2node.create_publisher(d, t, qos_profile=rclpy.qos.qos_profile_system_default)
             self.get_ros_time = lambda t: rclpy.time.Time(seconds=t).to_msg()
             self.tf_broadcaster = TransformBroadcaster(self.ros2node)
+            # Create controller parameter services for arm, head, and omni-base controllers
+            self._create_controller_parameter_services()
             executor = rclpy.executors.MultiThreadedExecutor()
             executor.add_node(self.ros2node)
             threading.Thread(target=executor.spin).start()
@@ -860,6 +864,69 @@ class hsr:
             attribute="inputs:lidarPrim",
             target_prim_paths=[self.stage_path + self.prefix + "/base_range_sensor_link/Lidar"],
         )
+
+    def _create_controller_parameter_services(self) -> None:
+        """Create ROS 2 GetParameters services for controller joint-name queries."""
+        # Arm joints controlled by arm_trajectory_controller
+        self._arm_controller_joints = [
+            "arm_lift_joint",
+            "arm_flex_joint",
+            "arm_roll_joint",
+            "wrist_flex_joint",
+            "wrist_roll_joint",
+        ]
+        # Head joints controlled by head_trajectory_controller
+        self._head_controller_joints = [
+            "head_pan_joint",
+            "head_tilt_joint",
+        ]
+        # Base coordinates used by omni_base_controller
+        self._base_controller_coordinates = [
+            "odom_x",
+            "odom_y",
+            "odom_t",
+        ]
+
+        self._arm_get_parameters_srv = self.ros2node.create_service(
+            GetParameters,
+            '/arm_trajectory_controller/get_parameters',
+            lambda request, context: self._build_parameters_response(
+                request,
+                'joints',
+                self._arm_controller_joints,
+            ),
+        )
+        self._head_get_parameters_srv = self.ros2node.create_service(
+            GetParameters,
+            '/head_trajectory_controller/get_parameters',
+            lambda request, context: self._build_parameters_response(
+                request,
+                'joints',
+                self._head_controller_joints,
+            ),
+        )
+        self._base_get_parameters_srv = self.ros2node.create_service(
+            GetParameters,
+            '/omni_base_controller/get_parameters',
+            lambda request, context: self._build_parameters_response(
+                request,
+                'base_coordinates',
+                self._base_controller_coordinates,
+            ),
+        )
+
+    def _build_parameters_response(self, request, valid_name, values):
+        """Helper to build GetParameters response with a string array parameter."""
+        response = GetParameters.Response()
+        for name in request.names:
+            pv = ParameterValue()
+            if name == valid_name:
+                pv.type = ParameterType.PARAMETER_STRING_ARRAY
+                pv.string_array_value = list(values)
+            else:
+                pv.type = ParameterType.PARAMETER_NOT_SET
+            response.values.append(pv)
+        return response
 
     def set_base_joint_and_material(self) -> None:
         caster_material = PhysicsMaterial(
