@@ -101,26 +101,30 @@ def generate_launch_description():
 
     robot_state_publisher = OpaqueFunction(function=render_xacro_and_launch_robot_state_publisher, args=[args])
 
-    nav = GroupAction(
+    common = GroupAction(
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     [
                         os.path.join(
-                            get_package_share_directory('hsrb_rosnav_config'),
+                            get_package_share_directory('hsrb_common_launch'),
                             'launch',
-                            'navigation_launch.py',
+                            'hsrb_common.launch.py',
                         )
                     ]
                 ),
                 launch_arguments={
                     'use_sim_time': 'true',
+                    'use_navigation': 'true',
                     'map': os.path.join(
                         get_package_share_directory('tmc_wrs_gazebo_worlds'),
                         'maps',
                         'wrs2020',
                         'map.yaml'
-                    )
+                    ),
+                    'use_manipulation': 'true',
+                    'use_teleop': 'false',
+                    'use_joy_node': 'false',
                 }.items(),
             ),
         ]
@@ -179,7 +183,7 @@ def generate_launch_description():
         sensor_frames,
         joint_state_publisher,
         robot_state_publisher,
-        nav,
+        common,
         moveit,
         odom,
         task_evaluators

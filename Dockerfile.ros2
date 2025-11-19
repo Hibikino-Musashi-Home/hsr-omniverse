@@ -8,11 +8,16 @@ SHELL ["/bin/bash", "-c"]
 
 ENV DEBIAN_FRONTEND noninteractive
 
-RUN apt update && \
+RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt update && \
     apt install -y git python-is-python3 g++ make libgflags-dev \
     python3-colcon-common-extensions \
     libeigen3-dev \
     libpoco-dev \
+    libboost-system-dev \
+    libboost-filesystem-dev \
     libsdl1.2-dev \
     libsdl-image1.2-dev \
     ros-humble-rclpy \
@@ -46,32 +51,45 @@ RUN apt update && \
     ros-humble-rviz-imu-plugin \
     ros-humble-rqt-robot-steering \
     ros-humble-rqt-tf-tree \
-    && \
-    apt clean
+    ros-humble-controller-interface \
+    ros-humble-realtime-tools \
+    ros-humble-action-tutorials-interfaces \
+    ros-humble-example-interfaces \
+    ros-humble-diagnostic-updater \
+    ros-humble-std-srvs \
+    libode-dev \
+    ipython3 \
+    python3-stl
 
 RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
     mkdir -p /ws/src && \
     cd /ws/src && \
-    git clone -b foxy https://github.com/hsr-project/hsrb_description.git && \
-    git clone -b foxy https://github.com/hsr-project/hsrb_meshes.git && \
+    git clone -b humble https://github.com/hsr-project/hsrb_description.git && \
+    git clone -b humble https://github.com/hsr-project/hsrb_meshes.git && \
+    git clone -b humble https://github.com/hsr-project/tmc_common.git && \
+    git clone -b humble https://github.com/hsr-project/hsr_common.git && \
+    git clone -b humble https://github.com/hsr-project/tmc_drivers.git && \
+    git clone -b humble https://github.com/hsr-project/tmc_database.git && \
     git clone -b humble https://github.com/hsr-project/tmc_manipulation_base.git && \
+    git clone -b humble https://github.com/hsr-project/tmc_manipulation.git && \
+    git clone -b humble https://github.com/hsr-project/tmc_manipulation_planner.git && \
     git clone -b humble https://github.com/hsr-project/hsrb_manipulation.git && \
     git clone -b humble https://github.com/hsr-project/hsrb_moveit_plugins.git && \
     git clone -b humble https://github.com/hsr-project/hsrb_moveit_config.git && \
-    git clone -b foxy https://github.com/hsr-project/tmc_control_msgs.git && \
     git clone -b humble https://github.com/hsr-project/tmc_common_msgs.git && \
+    git clone -b humble https://github.com/hsr-project/tmc_realtime_control.git && \
     git clone -b humble https://github.com/hsr-project/tmc_navigation.git && \
     git clone -b humble https://github.com/hsr-project/hsrb_rosnav.git && \
     git clone -b humble https://github.com/hsr-project/hsrb_robot.git && \
     git clone -b ros2_csm_eigen https://github.com/AlexKaravaev/csm.git && \
     git clone -b main https://github.com/AlexKaravaev/ros2_laser_scan_matcher.git && \
-    rm -r tmc_manipulation_base/tmc_manipulation_types_bridge && \
-    rm -r tmc_manipulation_base/tmc_collision_detector && \
-    rm -r tmc_manipulation_base/tmc_robot_collision_detector && \
-    rm -r hsrb_manipulation/hsrb_planner_plugins && \
-    rm -r hsrb_manipulation/hsrb_ik_solver_node && \
+    git clone -b humble https://github.com/hsr-project/tmc_voice.git && \
+    git clone -b humble https://github.com/hsr-project/hsrb_launch.git && \
+    git clone -b humble https://github.com/hsr-project/hsrb_interfaces.git && \
     git clone -b feature/ros2 https://github.com/hsr-project/tmc_gazebo_task_evaluators.git && \
     git clone -b feature/ros2 https://github.com/hsr-project/tmc_wrs_gazebo.git && \
+    rm -rf tmc_drivers/tmc_pgr_camera && \
+    rm -rf tmc_voice/tmc_talk_hoya_py && \
     cd .. && \
     colcon build
 
