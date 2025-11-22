@@ -1044,10 +1044,11 @@ class hsr:
             js.position.append(st.pos)
             js.velocity.append(st.vel)
             js.effort.append(st.effort * 1000.0)
-        js.name = js.name + ['odom_x', 'odom_y', 'odom_t']
-        js.position.extend([self.odometry_estimator.pose.x, self.odometry_estimator.pose.y, self.odometry_estimator.pose.ang])
-        js.velocity.extend([0, 0, 0])
-        js.effort.extend([0, 0, 0])
+        if not is_ros2:
+            js.name = js.name + ['odom_x', 'odom_y', 'odom_t']
+            js.position.extend([self.odometry_estimator.pose.x, self.odometry_estimator.pose.y, self.odometry_estimator.pose.ang])
+            js.velocity.extend([0, 0, 0])
+            js.effort.extend([0, 0, 0])
         self.joint_state_pub.publish(js)
 
     def onsimulationstart(self, simulation_context):
