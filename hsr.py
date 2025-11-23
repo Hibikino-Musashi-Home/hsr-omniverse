@@ -601,6 +601,7 @@ class hsr:
                     og.Controller.Keys.CONNECT: [
                         ("OnTick.outputs:tick", "createRenderProduct.inputs:execIn"),
                         ("createRenderProduct.outputs:execOut", "cameraHelperRgb.inputs:execIn"),
+                        ("createRenderProduct.outputs:execOut", "cameraHelperInfo.inputs:execIn"),
                         ("createRenderProduct.outputs:renderProductPath", "cameraHelperRgb.inputs:renderProductPath"),
                         ("createRenderProduct.outputs:renderProductPath", "cameraHelperInfo.inputs:renderProductPath"),
                     ],
