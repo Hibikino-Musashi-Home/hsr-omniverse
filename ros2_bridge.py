@@ -24,6 +24,7 @@ from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from trajectory_msgs.msg import JointTrajectoryPoint
 from control_msgs.action import FollowJointTrajectory
 from control_msgs.action import GripperCommand
+from control_msgs.msg import JointTrajectoryControllerState
 
 
 class RosController:
@@ -86,6 +87,9 @@ class RosControlFollowJointTrajectory(RosController):
         self._action_result_message = None
         self._action_feedback_message = FollowJointTrajectory.Feedback()
 
+        # publisher for controller state (e.g. /arm_trajectory_controller/state)
+        self._state_pub = None
+
     def start(self, _articulation_path, _action_topic_name) -> None:
         """Start the action server
         """
@@ -105,6 +109,14 @@ class RosControlFollowJointTrajectory(RosController):
                                            handle_accepted_callback=self._on_handle_accepted)
         print("[Info][semu.robotics.ros2_bridge] RosControlFollowJointTrajectory: register action {}" \
             .format(self.action_topic_name))
+
+        # derive controller state topic from action name
+        state_topic = self.action_topic_name.replace('/follow_joint_trajectory', '/state')
+        self._state_pub = self._node.create_publisher(
+            JointTrajectoryControllerState,
+            state_topic,
+            10,
+        )
 
         self.started = True
 
@@ -230,8 +242,13 @@ class RosControlFollowJointTrajectory(RosController):
 
         # check initial position
         if goal.trajectory.points[0].time_from_start:
-            initial_point = JointTrajectoryPoint(positions=[self._get_joint_position(name) for name in goal.trajectory.joint_names],
-                                                 time_from_start=Duration().to_msg())
+            initial_point = JointTrajectoryPoint(
+                positions=[
+                    self._get_joint_position(name)
+                    for name in goal.trajectory.joint_names
+                ],
+                time_from_start=Duration().to_msg(),
+            )
             goal.trajectory.points.insert(0, initial_point)
 
         # reset internal data
@@ -337,7 +354,63 @@ class RosControlFollowJointTrajectory(RosController):
                 self._action_feedback_message.actual.time_from_start = Duration(seconds=time_passed).to_msg()
                 if self._action_goal_handle is not None:
                     self._action_goal_handle.publish_feedback(self._action_feedback_message)
+        # publish controller state for this timestep
+        if self._state_pub is not None:
+            msg = JointTrajectoryControllerState()
+            msg.header.stamp = self._node.get_clock().now().to_msg()
 
+            # joint order: use articulation joints (sorted for determinism)
+            joint_names = sorted(self._joints.keys())
+            msg.joint_names = joint_names
+
+            # actual state from articulation
+            actual_positions = []
+            actual_velocities = []
+            for name in joint_names:
+                try:
+                    pos = self._get_joint_position(name)
+                except Exception:
+                    pos = 0.0
+                actual_positions.append(pos)
+                try:
+                    vel = self.dci.get_dof_state(
+                        self._joints[name]["dof"],
+                        _dynamic_control.STATE_VEL,
+                    ).vel
+                except Exception:
+                    vel = 0.0
+                actual_velocities.append(vel)
+
+            msg.actual.positions = list(actual_positions)
+            msg.actual.velocities = list(actual_velocities)
+
+            # desired state from current trajectory point if a goal is active
+            desired_positions = list(actual_positions)
+            desired_velocities = [0.0] * len(joint_names)
+
+            if self._action_goal is not None and self._action_goal.trajectory.points:
+                # clamp index in case it's already at/after the end
+                point_index = min(self._action_point_index, len(self._action_goal.trajectory.points) - 1)
+                current_point = self._action_goal.trajectory.points[point_index]
+
+                # map trajectory joint order to controller joint order
+                for i, name in enumerate(self._action_goal.trajectory.joint_names):
+                    if name in self._joints and name in joint_names:
+                        j_idx = joint_names.index(name)
+                        if i < len(current_point.positions):
+                            desired_positions[j_idx] = current_point.positions[i]
+                        if i < len(current_point.velocities):
+                            desired_velocities[j_idx] = current_point.velocities[i]
+
+            msg.desired.positions = desired_positions
+            msg.desired.velocities = desired_velocities
+
+            # error = desired - actual
+            msg.error.positions = [
+                dp - ap for dp, ap in zip(desired_positions, actual_positions)
+            ]
+
+            self._state_pub.publish(msg)
 
 class RosControllerGripperCommand(RosController):
     def __init__(self,
