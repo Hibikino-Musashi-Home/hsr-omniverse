@@ -128,7 +128,7 @@ class RosControlFollowJointTrajectory(RosController):
         # destroy action server
         if self._action_server is not None:
             print("[Info][semu.robotics.ros2_bridge] RosControlFollowJointTrajectory: destroy action server: {}" \
-                .format(self._action_topic_name))
+                .format(self.action_topic_name))
             # self._action_server.destroy()
             self._action_server = None
         self._action_goal_handle = None
@@ -348,6 +348,14 @@ class RosControlFollowJointTrajectory(RosController):
             # send feedback
             else:
                 self._action_point_index += 1
+                # set joint targets for the new current point when advancing the index
+                if self._action_point_index < len(self._action_goal.trajectory.points):
+                    new_point = self._action_goal.trajectory.points[self._action_point_index]
+                    self.dci.wake_up_articulation(self._articulation)
+                    for i, name in enumerate(self._action_goal.trajectory.joint_names):
+                        if i < len(new_point.positions):
+                            target_position = new_point.positions[i]
+                            self._set_joint_position(name, target_position)
                 self._action_feedback_message.joint_names = list(self._action_goal.trajectory.joint_names)
                 self._action_feedback_message.actual.positions = [self._get_joint_position(name) \
                     for name in self._action_goal.trajectory.joint_names]
