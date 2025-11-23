@@ -456,7 +456,7 @@ class hsr:
             init_action_server(self.arm_trajectory_action_server, 'arm_trajectory_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
 
             self.head_trajectory_action_server = head_trajectory_action_server()
-            init_action_server(self.arm_trajectory_action_server, 'head_trajectory_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
+            init_action_server(self.head_trajectory_action_server, 'head_trajectory_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
 
             self.odom_trajectory_action_server = odom_trajectory_action_server()
             init_action_server(self.odom_trajectory_action_server, 'omni_base_controller/follow_joint_trajectory', FollowJointTrajectoryAction)
@@ -507,7 +507,7 @@ class hsr:
             init_action_server(self.arm_trajectory_action_server, 'arm_trajectory_controller/follow_joint_trajectory', FollowJointTrajectory)
 
             self.head_trajectory_action_server = head_trajectory_action_server(self.ros2node, self.dc)
-            init_action_server(self.arm_trajectory_action_server, 'head_trajectory_controller/follow_joint_trajectory', FollowJointTrajectory)
+            init_action_server(self.head_trajectory_action_server, 'head_trajectory_controller/follow_joint_trajectory', FollowJointTrajectory)
 
             self.odom_trajectory_action_server = odom_trajectory_action_server(self.ros2node, self.dc)
             init_action_server(self.odom_trajectory_action_server, 'omni_base_controller/follow_joint_trajectory', FollowJointTrajectory)
