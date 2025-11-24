@@ -255,6 +255,7 @@ class RosControlFollowJointTrajectory(RosController):
         self._action_goal_handle = None
         self._action_start_time = None
         self._action_result_message = None
+        self._action_point_index = 1
 
         # store goal data
         self._action_goal = goal
