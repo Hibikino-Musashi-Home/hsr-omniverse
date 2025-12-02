@@ -120,3 +120,23 @@ Open a new terminal (Terminal 2)
 $ cd hsr-omniverse
 $ docker compose exec ros /ros_entrypoint.sh rviz -d /hsr-omniverse.rviz
 ```
+
+### How to start ihsrb cli interface under docker environment
+
+Start the simulator:
+
+```console
+$ docker compose -f docker-compose-ros2.yml build
+$ docker compose -f docker-compose-ros2.yml up
+```
+
+Open the another terminal and connect to the ROS container:
+
+```console
+$ docker compose -f docker-compose-ros2.yml exec ros bash
+$ source /ws/install/setup.bash
+$ ros2 run hsrb_interface_py ihsrb.py
+```
+
+Now, you can use cli commands and APIs as described in 
+the [package documentation](https://github.com/hsr-project/hsrb_interfaces/blob/humble/hsrb_interface_py/PKGDOC.rst) and [developer manual](https://docs.hsr.io/hsr_develop_manual/reference/python.html).
