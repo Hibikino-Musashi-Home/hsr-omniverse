@@ -887,6 +887,10 @@ class hsr:
             "odom_y",
             "odom_t",
         ]
+        # Gripper joints controlled by gripper_controller
+        self._gripper_controller_joints = [
+            "hand_motor_joint",
+        ]
 
         self._arm_get_parameters_srv = self.ros2node.create_service(
             GetParameters,
@@ -913,6 +917,15 @@ class hsr:
                 request,
                 'base_coordinates',
                 self._base_controller_coordinates,
+            ),
+        )
+        self._gripper_get_parameters_srv = self.ros2node.create_service(
+            GetParameters,
+            '/gripper_controller/get_parameters',
+            lambda request, context: self._build_parameters_response(
+                request,
+                'joints',
+                self._gripper_controller_joints,
             ),
         )
 
