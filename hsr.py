@@ -389,7 +389,7 @@ class hsr:
 
         if is_ros2:
             self.laserscan_pose_sub = self.create_subscriber('/laser_odom', Odometry, self.on_laserscan_odom)
-            self.base_odom_pub = self.create_publisher('/omni_base_controller/wheel_odom', Odometry)
+            self.base_odom_pub = self.create_publisher_reliable('/omni_base_controller/wheel_odom', Odometry)
         else:
             self.laserscan_pose_sub = self.create_subscriber(self.prefix + '/laser_scan_matcher/pose', PoseStamped, self.on_laserscan_pose)
             self.laser_odom_pub = self.create_publisher(self.prefix + '/laser_odom', Odometry)
