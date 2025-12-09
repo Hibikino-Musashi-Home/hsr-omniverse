@@ -146,6 +146,7 @@ class gripper_trajectory_action_server(semuInternalState):
             super()._set_joint_position('hand_l_distal_joint', -target_position)
             super()._set_joint_position('hand_r_proximal_joint', target_position)
             super()._set_joint_position('hand_r_distal_joint', -target_position)
+        super()._set_joint_position(name, target_position)
 
 
 class gripper_command_action_server(semuGripperInternalState):
