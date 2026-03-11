@@ -45,9 +45,10 @@ services:
       - ACCEPT_EULA=Y
       - http_proxy=http://127.0.0.1:3128
       - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
-      - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
-      - /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
+      #- /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
+      #- /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
       - ${HOME}/.hsr-omniverse/cache/kit:/isaac-sim/kit/cache:rw
       - ${HOME}/.hsr-omniverse/cache/ov:/root/.cache/ov:rw
       - ${HOME}/.hsr-omniverse/cache/pip:/root/.cache/pip:rw
@@ -58,3 +59,13 @@ services:
     depends_on:
       - ros
       - cacheproxy
+    #command:
+    #  - /bin/bash
+    #  - -lc
+    #  - |
+    #    rm -rf /root/.local/share/ov/data/* \
+    #           /isaac-sim/kit/cache/* \
+    #           /root/.cache/ov/* \
+    #           /root/.cache/nvidia/GLCache/* \
+    #           /root/.nv/ComputeCache/* && \
+    #    /isaac-sim/python.sh /app/sample-ros.py

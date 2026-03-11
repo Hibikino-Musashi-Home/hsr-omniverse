@@ -1,5 +1,6 @@
 # Copyright (c) 2023, Toyota Motor Corporation
 # Copyright (c) 2023, MID Academic Promotions, Inc.
+# modified Ryohei Kobayashi in Hibikino-Musashi@Home 2026
 # All rights reserved.
 
 FROM ros:noetic-ros-core-focal

@@ -2,30 +2,58 @@
 # Copyright (c) 2023, MID Academic Promotions, Inc.
 # All rights reserved.
 
-from omni.isaac.kit import SimulationApp
+#from isaacsim.simulation_app import SimulationApp
+#
+#kit = SimulationApp({"renderer": "RayTracedLighting", "headless": False})
+#kit.set_setting("/app/extensions/installUntrustedExtensions", True)
 
-kit = SimulationApp({"renderer": "RayTracedLighting", "headless": False})
+from isaacsim.simulation_app import SimulationApp
+
+kit = SimulationApp({
+    "renderer": "RayTracedLighting",
+    "headless": False,
+    "extra_args": [
+        "--/app/extensions/excluded/0=isaacsim.asset.importer.urdf",
+        "--/app/extensions/excluded/1=isaacsim.ros2.urdf",
+    ],
+})
 kit.set_setting("/app/extensions/installUntrustedExtensions", True)
 
-import sys
 import os
 import math
 import numpy as np
 import xml.etree.ElementTree as ET
-import xacro
-import omni.ui
+
 from omni.isaac.core import SimulationContext
 from omni.isaac.core.utils import viewports, stage, nucleus
 from omni.isaac.core.utils.prims import create_prim
 from omni.isaac.core.utils.rotations import euler_angles_to_quat
 import omni.kit.commands
-from omni.isaac.version import get_version
+
+#from omni.isaac.core import SimulationContext
+#from omni.isaac.core.utils import viewports, stage
+#from omni.isaac.core.utils.prims import create_prim
+#from omni.isaac.core.utils.rotations import euler_angles_to_quat
+#import omni.kit.commands
+
+from isaacsim.core.version import get_version
 import hsr
+
 from pxr import Sdf, Usd, UsdGeom, Gf, UsdPhysics, PhysxSchema, PhysicsSchemaTools
 from omni.physx import get_physx_simulation_interface
-from omni.isaac.sensor import ContactSensor
-from omni.isaac.sensor import _sensor
-from omni.isaac.core.materials.physics_material import PhysicsMaterial
+
+from isaacsim.sensors.physics import ContactSensor
+#from isaacsim.sensors.physics import _sensor
+
+#from omni.isaac.core.materials.physics_material import PhysicsMaterial
+from isaacsim.core.api.materials.physics_material import PhysicsMaterial
+
+
+#from pxr import Sdf, Usd, UsdGeom, Gf, UsdPhysics, PhysxSchema, PhysicsSchemaTools
+#from omni.physx import get_physx_simulation_interface
+#from omni.isaac.sensor import ContactSensor
+#from omni.isaac.sensor import _sensor
+#from omni.isaac.core.materials.physics_material import PhysicsMaterial
 
 from tmc_wrs_gazebo_worlds import randomizer
 
@@ -70,8 +98,14 @@ create_prim(
     }
 )
 
+from isaacsim.storage.native import get_assets_root_path
+assets_root_path = get_assets_root_path()
+if assets_root_path is None:
+    raise RuntimeError("Could not find Isaac Sim assets root")
+
+
 # Loading the simple_room environment
-assets_root_path = "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/" + get_version()[0]
+#assets_root_path = "http://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/" + get_version()[0]
 BACKGROUND_STAGE_PATH = "/background"
 #BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Room/simple_room.usd"
 #BACKGROUND_USD_PATH = "/Isaac/Environments/Simple_Warehouse/warehouse.usd"
@@ -86,11 +120,29 @@ floor_material = PhysicsMaterial(
     prim_path='/Floor',
     static_friction=60.0,
     dynamic_friction=60.0)
-omni.kit.commands.execute('BindMaterialExt',
-                            material_path='/Floor',
-                            prim_path=[BACKGROUND_STAGE_PATH + '/GroundPlane/CollisionPlane'],
-                            strength=['weakerThanDescendants'],
-                            material_purpose='physics')
+
+#omni.kit.commands.execute('BindMaterialExt',
+#                            material_path='/Floor',
+#                            prim_path=[BACKGROUND_STAGE_PATH + '/GroundPlane/CollisionPlane'],
+#                            strength=['weakerThanDescendants'],
+#                            material_purpose='physics')
+
+from omni.isaac.core.prims import GeometryPrim
+from isaacsim.core.api.materials.physics_material import PhysicsMaterial
+
+floor_material = PhysicsMaterial(
+    prim_path="/World/PhysicsMaterials/FloorMaterial",
+    static_friction=60.0,
+    dynamic_friction=60.0,
+)
+
+ground_prim = GeometryPrim(
+    prim_path=BACKGROUND_STAGE_PATH + "/GroundPlane/CollisionPlane"
+)
+ground_prim.apply_physics_material(
+    floor_material,
+    weaker_than_descendants=True
+)
 
 model_names = []
 
