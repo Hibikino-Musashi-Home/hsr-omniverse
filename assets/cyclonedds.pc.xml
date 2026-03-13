@@ -6,7 +6,7 @@
             <Interfaces>
                 <!-- TODO: Please configure settings according to your device (name="xxx"). -->
                 <!-- You can check it using the 'ip addr' command. -->
-                <NetworkInterface name="enx68da73a10903"/>
+                <NetworkInterface name="enp3s0"/>
             </Interfaces>
             <AllowMulticast>false</AllowMulticast>
             <EnableMulticastLoopback>false</EnableMulticastLoopback>
