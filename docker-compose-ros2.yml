@@ -3,7 +3,7 @@
 # All rights reserved.
 version: "2.3"
 services:
-  ros:
+  ros2:
     build:
       context: .
       dockerfile: Dockerfile.ros2
@@ -45,9 +45,10 @@ services:
       - ACCEPT_EULA=Y
       - http_proxy=http://127.0.0.1:3128
       - NVIDIA_VISIBLE_DEVICES=all
+      - HSR_ROS_VERSION=2
     volumes:
-      - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
-      - /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
+      #- /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
+      #- /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
       - ${HOME}/.hsr-omniverse/cache/kit:/isaac-sim/kit/cache:rw
       - ${HOME}/.hsr-omniverse/cache/ov:/root/.cache/ov:rw
       - ${HOME}/.hsr-omniverse/cache/pip:/root/.cache/pip:rw

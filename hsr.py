@@ -23,28 +23,14 @@ import omni.graph.core as og
 import omni.replicator.core as rep
 #from omni.isaac.sensor import _sensor
 
-is_ros2 = False
-try:
-    import rospy
-    import tf.transformations
-    import actionlib
-    from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped, TransformStamped
-    from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryActionGoal, FollowJointTrajectoryGoal, GripperCommandAction, GripperCommandActionGoal
-    from actionlib_msgs.msg import GoalStatusArray, GoalStatus, GoalID
-    from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-    from sensor_msgs.msg import JointState, Imu
-    from nav_msgs.msg import Odometry
-    from tmc_control_msgs.msg import GripperApplyEffortAction, GripperApplyEffortResult, GripperApplyEffortFeedback
+# add by r.kobayashi version selector
+ROS_VERSION = os.environ.get("HSR_ROS_VERSION", "2").strip()
+if ROS_VERSION not in ("1", "2"):
+    raise ValueError(f"Unsupported HSR_ROS_VERSION={ROS_VERSION}. Use '1' or '2'.")
+is_ros2 = ROS_VERSION == "2"
 
-    def quaternion_from_euler(r, p, y):
-        return tf.transformations.quaternion_from_euler(r, p, y)
-
-    def euler_from_quaternion(x, y, z, w):
-        return tf.transformations.euler_from_quaternion((x, y, z, w))
-
-    extensions.enable_extension("isaacsim.ros1.bridge")
-except ImportError:
-    is_ros2 = True
+#is_ros2 = False
+if is_ros2:
     import rclpy
     import rclpy.node
     import rclpy.qos
@@ -67,6 +53,80 @@ except ImportError:
         return tf_transformations.euler_from_quaternion((x, y, z, w))
 
     extensions.enable_extension("isaacsim.ros2.bridge")
+
+else:
+    import rospy
+    import tf.transformations
+    import actionlib
+    from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped, TransformStamped
+    from control_msgs.msg import (
+        FollowJointTrajectoryAction,
+        FollowJointTrajectoryActionGoal,
+        FollowJointTrajectoryGoal,
+        GripperCommandAction,
+        GripperCommandActionGoal,
+    )
+    from actionlib_msgs.msg import GoalStatusArray, GoalStatus, GoalID
+    from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+    from sensor_msgs.msg import JointState, Imu
+    from nav_msgs.msg import Odometry
+    from tmc_control_msgs.msg import (
+        GripperApplyEffortAction,
+        GripperApplyEffortResult,
+        GripperApplyEffortFeedback,
+    )
+
+    def quaternion_from_euler(r, p, y):
+        return tf.transformations.quaternion_from_euler(r, p, y)
+
+    def euler_from_quaternion(x, y, z, w):
+        return tf.transformations.euler_from_quaternion((x, y, z, w))
+
+    extensions.enable_extension("isaacsim.ros1.bridge")
+#try:
+#    import rospy
+#    import tf.transformations
+#    import actionlib
+#    from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped, TransformStamped
+#    from control_msgs.msg import FollowJointTrajectoryAction, FollowJointTrajectoryActionGoal, FollowJointTrajectoryGoal, GripperCommandAction, GripperCommandActionGoal
+#    from actionlib_msgs.msg import GoalStatusArray, GoalStatus, GoalID
+#    from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+#    from sensor_msgs.msg import JointState, Imu
+#    from nav_msgs.msg import Odometry
+#    from tmc_control_msgs.msg import GripperApplyEffortAction, GripperApplyEffortResult, GripperApplyEffortFeedback
+#
+#    def quaternion_from_euler(r, p, y):
+#        return tf.transformations.quaternion_from_euler(r, p, y)
+#
+#    def euler_from_quaternion(x, y, z, w):
+#        return tf.transformations.euler_from_quaternion((x, y, z, w))
+#
+#    extensions.enable_extension("isaacsim.ros1.bridge")
+#except ImportError:
+#
+#    is_ros2 = True
+#    import rclpy
+#    import rclpy.node
+#    import rclpy.qos
+#    import rclpy.time
+#    from geometry_msgs.msg import Twist, PoseStamped, Quaternion, WrenchStamped, TransformStamped
+#    from control_msgs.action import FollowJointTrajectory, GripperCommand
+#    from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+#    from sensor_msgs.msg import JointState, Imu
+#    from nav_msgs.msg import Odometry
+#    from tf2_ros import TransformBroadcaster
+#    from tmc_control_msgs.action import GripperApplyEffort
+#    from rcl_interfaces.srv import GetParameters
+#    from rcl_interfaces.msg import ParameterValue, ParameterType
+#    import tf_transformations
+#
+#    def quaternion_from_euler(r, p, y):
+#        return tf_transformations.quaternion_from_euler(r, p, y)
+#
+#    def euler_from_quaternion(x, y, z, w):
+#        return tf_transformations.euler_from_quaternion((x, y, z, w))
+#
+#    extensions.enable_extension("isaacsim.ros2.bridge")
 
 extensions.enable_extension("isaacsim.sensors.physx")
 extensions.enable_extension("isaacsim.util.debug_draw")
@@ -376,29 +436,61 @@ class hsr:
         if config is None:
             config = hsr_config()
 
+        #if is_ros2:
+        #    rclpy.init()
+        #    self.ros2node = rclpy.node.Node("isaac_sim_hsr")
+        #    self.create_subscriber = lambda t, d, c: self.ros2node.create_subscription(d, t, c, qos_profile=rclpy.qos.qos_profile_sensor_data)
+        #    self.create_publisher = lambda t, d: self.ros2node.create_publisher(d, t, qos_profile=rclpy.qos.qos_profile_sensor_data)
+        #    self.create_publisher_reliable = lambda t, d: self.ros2node.create_publisher(d, t, qos_profile=rclpy.qos.qos_profile_system_default)
+        #    self.get_ros_time = lambda t: rclpy.time.Time(seconds=t).to_msg()
+        #    self.tf_broadcaster = TransformBroadcaster(self.ros2node)
+        #    self._create_controller_parameter_services()
+        #    executor = rclpy.executors.MultiThreadedExecutor()
+        #    executor.add_node(self.ros2node)
+        #    threading.Thread(target=executor.spin).start()
+        #else:
+        #    # add by r.kobayashi
+        #    try:
+        #        rospy.init_node("isaac_sim_hsr", anonymous=True, disable_signals=True, log_level=rospy.ERROR)
+        #    except rospy.exception.ROSException:
+        #        pass
+
+        #    self.create_subscriber = lambda t, d, c: rospy.Subscriber(t, d, c)
+        #    self.create_publisher = lambda t, d: rospy.Publisher(t, d, queue_size=5)
+        #    self.create_publisher_reliable = lambda t, d: rospy.Publisher(t, d, queue_size=5)
+        #    self.get_ros_time = lambda t: rospy.Time(t)
         if is_ros2:
-            rclpy.init()
+            if not rclpy.ok():
+                rclpy.init()
             self.ros2node = rclpy.node.Node("isaac_sim_hsr")
-            self.create_subscriber = lambda t, d, c: self.ros2node.create_subscription(d, t, c, qos_profile=rclpy.qos.qos_profile_sensor_data)
-            self.create_publisher = lambda t, d: self.ros2node.create_publisher(d, t, qos_profile=rclpy.qos.qos_profile_sensor_data)
-            self.create_publisher_reliable = lambda t, d: self.ros2node.create_publisher(d, t, qos_profile=rclpy.qos.qos_profile_system_default)
+            self.create_subscriber = lambda t, d, c: self.ros2node.create_subscription(
+                d, t, c, qos_profile=rclpy.qos.qos_profile_sensor_data
+            )
+            self.create_publisher = lambda t, d: self.ros2node.create_publisher(
+                d, t, qos_profile=rclpy.qos.qos_profile_sensor_data
+            )
+            self.create_publisher_reliable = lambda t, d: self.ros2node.create_publisher(
+                d, t, qos_profile=rclpy.qos.qos_profile_system_default
+            )
             self.get_ros_time = lambda t: rclpy.time.Time(seconds=t).to_msg()
             self.tf_broadcaster = TransformBroadcaster(self.ros2node)
             self._create_controller_parameter_services()
+        
             executor = rclpy.executors.MultiThreadedExecutor()
             executor.add_node(self.ros2node)
-            threading.Thread(target=executor.spin).start()
+            self._executor = executor
+            self._executor_thread = threading.Thread(target=executor.spin, daemon=True)
+            self._executor_thread.start()
         else:
-            # add by r.kobayashi
             try:
                 rospy.init_node("isaac_sim_hsr", anonymous=True, disable_signals=True, log_level=rospy.ERROR)
-            except rospy.exception.ROSException:
+            except rospy.exceptions.ROSException:
                 pass
-
+        
             self.create_subscriber = lambda t, d, c: rospy.Subscriber(t, d, c)
             self.create_publisher = lambda t, d: rospy.Publisher(t, d, queue_size=5)
             self.create_publisher_reliable = lambda t, d: rospy.Publisher(t, d, queue_size=5)
-            self.get_ros_time = lambda t: rospy.Time(t)
+            self.get_ros_time = lambda t: rospy.Time.from_sec(t)
 
         self.prefix = prefix
         self.stage_path = stage_path

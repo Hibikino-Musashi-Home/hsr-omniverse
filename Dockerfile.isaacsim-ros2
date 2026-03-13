@@ -4,7 +4,9 @@
 
 FROM ros:humble-ros-core-jammy AS ros
 
-FROM nvcr.io/nvidia/isaac-sim:2023.1.1
+#FROM nvcr.io/nvidia/isaac-sim:2023.1.1
+FROM nvcr.io/nvidia/isaac-sim:4.5.0 AS isaac-sim
+
 
 SHELL ["/bin/bash", "-c"]
 
@@ -60,7 +62,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     ros-humble-std-srvs \
     ros-humble-action-tutorials-interfaces \
     ros-humble-example-interfaces \
-    ros-humble-angles
+    ros-humble-angles \
+    ros-humble-urdf
 RUN /isaac-sim/python.sh -m pip install transforms3d
 
 RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
@@ -70,8 +73,12 @@ RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
     git clone -b humble https://github.com/hsr-project/tmc_common.git && \
     git clone -b humble https://github.com/hsr-project/tmc_drivers.git && \
     git clone -b humble https://github.com/hsr-project/tmc_realtime_control.git && \
-    git clone -b feature/ros2 https://github.com/hsr-project/tmc_wrs_gazebo.git && \
-    git clone -b feature/ros2 https://github.com/hsr-project/tmc_gazebo_task_evaluators.git && \
+    git clone -b ignition/humble https://github.com/ry0hei-kobayashi/tmc_wrs_gazebo.git && \
+    #git clone -b feature/ros2 https://github.com/hsr-project/tmc_wrs_gazebo.git && \
+    #git clone -b feature/ros2 https://github.com/hsr-project/tmc_gazebo_task_evaluators.git && \
+    rm -rf hsrb_launch/hsrb_robot_launch && \
+    rm -rf hsrb_gazebo_launch/tmc_grid_map_server && \
+    rm -rf hsrb_simulator/hsrb_rviz_simulator && \
     rm -rf tmc_drivers/tmc_pgr_camera && \
     cd .. && \
     colcon build

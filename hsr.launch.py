@@ -149,24 +149,24 @@ def generate_launch_description():
         ]
     )
 
-    task_evaluators = GroupAction(
-        actions=[
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    [
-                        os.path.join(
-                            get_package_share_directory('tmc_gazebo_task_evaluators'),
-                            'launch',
-                            'robocup2021.launch.py',
-                        )
-                    ]
-                ),
-                launch_arguments={
-                    'use_sim_time': 'true'
-                }.items(),
-            ),
-        ]
-    )
+    #task_evaluators = GroupAction(
+    #    actions=[
+    #        IncludeLaunchDescription(
+    #            PythonLaunchDescriptionSource(
+    #                [
+    #                    os.path.join(
+    #                        get_package_share_directory('tmc_gazebo_task_evaluators'),
+    #                        'launch',
+    #                        'robocup2021.launch.py',
+    #                    )
+    #                ]
+    #            ),
+    #            launch_arguments={
+    #                'use_sim_time': 'true'
+    #            }.items(),
+    #        ),
+    #    ]
+    #)
 
     odom = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -186,7 +186,7 @@ def generate_launch_description():
         common,
         moveit,
         odom,
-        task_evaluators
+        #task_evaluators
     ]
 
     return LaunchDescription(

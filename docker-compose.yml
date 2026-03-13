@@ -3,7 +3,7 @@
 # All rights reserved.
 version: "2.3"
 services:
-  ros:
+  ros-noetic:
     build:
       context: .
       dockerfile: Dockerfile.ros
@@ -46,6 +46,7 @@ services:
       - http_proxy=http://127.0.0.1:3128
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
+      - HSR_ROS_VERSION=1
     volumes:
       #- /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
       #- /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
@@ -57,7 +58,7 @@ services:
       - ${HOME}/.hsr-omniverse/cache/data:/root/.local/share/ov/data:rw
       - ${HOME}/.hsr-omniverse/logs:/root/.nvidia-omniverse/logs:rw
     depends_on:
-      - ros
+      - ros-noetic
       - cacheproxy
     #command:
     #  - /bin/bash
