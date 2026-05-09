@@ -1,142 +1,160 @@
 # HSR-Omniverse
-This repository explains how to configure your workstation and run the development environment to use HSR with NVIDIA Omniverse. There are two installation procedures: standalone and containerized.
 
-## Standalone installation
-This section explains how to install and configure the libraries to use the HSR Omniverse environment natively on your workstation.
+NVIDIA Omniverse / Isaac Sim 上で HSR を扱うためのリポジトリ。
 
-### Requirements
-OS/Package     | Tested version
--------------- | -------------
-Ubuntu Linux   | 22.04
-Nvidia Drivers | 545.85
-ROS            | Noetic
-Isaac Sim      | 2023.1.1
+> **Note:** この README は **ROS 2 Humble + Isaac Sim 4.5**(現行の開発対象)向けの手順を記載しています。
+> ROS Noetic / Isaac Sim 2023.1.1 用の旧手順は本文末尾に残しています。
 
-1. Setup NVIDIA drivers
-```console
-$ sudo apt update
-$ sudo apt install nvidia-driver-545
-```
-2. Install Isaac Sim using the Omniverse Launcher:  
-https://docs.omniverse.nvidia.com/isaacsim/latest/installation/install_workstation.html
+---
 
-### Install ROS packages
-1. Setup ROS
-```console
-$ sudo apt install ros-noetic-panda-moveit-config ros-noetic-franka-hw libgflags-dev ros-noetic-rviz-imu-plugin ros-noetic-map-server ros-noetic-dwa-local-planner ros-noetic-move-base
-$ cd ~/.local/share/ov/pkg/isaac_sim-2023.1.1
-$ git clone --recursive https://git.hsr.io/tmc/hsr-omniverse.git
-$ ./python.sh -m pip install rospkg
-$ cd ros_workspace/src
-$ git clone https://github.com/hsr-project/hsrb_description.git
-$ git clone https://github.com/hsr-project/hsrb_meshes.git
-$ git clone https://github.com/hsr-project/hsrb_moveit_config.git
-$ git clone https://github.com/hsr-project/tmc_control_msgs.git
-$ git clone https://github.com/TAMS-Group/bio_ik.git
-$ git clone https://github.com/devrt/mobile-manipulator-tools.git
-$ git clone https://github.com/hsr-project/hsrb_rosnav.git
-$ git clone https://github.com/iris-ua/iris_lama
-$ git clone https://github.com/iris-ua/iris_lama_ros.git
-$ cd ..
-$ catkin build
-```
-2. Run ROS for HSR Omniverse  
-Open a new terminal (Terminal 1)
-```console
-$ source ros_workspace/devel/setup.bash
-$ roslaunch hsr-omniverse/hsr.launch
-```
-3. Run Python script sample for HSR Omniverse  
-Open a new terminal (Terminal 2)
-```console
-$ source ros_workspace/devel/setup.bash
-$ ./python.sh hsr-omniverse/sample-ros.py
-```
-4. Run Rviz for HSR Omniverse visualization  
-Open a new terminal (Terminal 3)
-```console
-$ source ros_workspace/devel/setup.bash
-$ rviz -d hsr-omniverse/hsr-omniverse.rviz
+## クイックスタート (ROS 2 Humble + Isaac Sim 4.5、Docker 構成)
+
+### 動作確認済み環境
+
+| 項目 | バージョン |
+|---|---|
+| OS | Ubuntu 22.04 |
+| GPU | NVIDIA RTX 4070 (VRAM 12GB) |
+| NVIDIA Driver | 580.142 |
+| Docker | 29.x |
+| NVIDIA Container Toolkit | latest |
+| Isaac Sim (コンテナ内) | 4.5.0 |
+| ROS 2 (コンテナ内) | Humble |
+
+推奨スペック: RTX 30 系以降, VRAM 12GB 以上, RAM 32GB 以上, 空きディスク 100GB 以上。
+
+### 1. ホスト環境のセットアップ
+
+Ubuntu 22.04 をインストールし、NVIDIA プロプライエタリドライバを入れます。BIOS で **Secure Boot を無効化**しておく必要があります(プロプライエタリドライバ使用のため)。
+
+```bash
+# NVIDIA ドライバ(Isaac Sim 4.5 では 535 以降が必要)
+sudo ubuntu-drivers autoinstall
+sudo reboot
+
+# 確認
+nvidia-smi
 ```
 
-## Containerized installation (with Docker)
-This section explains how to install and configure the Docker environment to use the HSR Omniverse.
+### 2. Docker と NVIDIA Container Toolkit のインストール
 
-### Requirements
-OS/Package     | Tested version
--------------- | -------------
-Ubuntu Linux   | 22.04
-Nvidia Drivers | 545.85
-Docker         | 24.0.5
-Docker compose | v2
+```bash
+# Docker
+sudo apt update
+sudo apt install -y docker.io docker-compose-v2
 
-1. Setup NVIDIA drivers
-```console
-$ sudo apt update
-$ sudo apt install nvidia-driver-545
-```
-2. Setup Docker & Docker compose
-```console
-$ sudo apt update
-$ sudo apt install docker.io docker-compose-v2
-```
-3. Setup NVIDIA Container Toolkit
-```console
-$ curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-$ sudo apt-get update
-$ sudo apt-get install -y nvidia-container-toolkit
-$ sudo systemctl restart docker
-```
-4. ***[Optional]*** Follow the official NVIDIA procedure
-https://docs.omniverse.nvidia.com/isaacsim/latest/installation/install_container.html
+# ユーザーを docker グループに追加
+sudo gpasswd -a $USER docker
+# (一度ログアウト・ログインする。または現在のシェルだけなら `newgrp docker`)
 
-### Build Docker image
-1. Clone repository
-```console
-$ git clone --recursive https://git.hsr.io/tmc/hsr-omniverse.git
-$ cd hsr-omniverse
-$ git submodule update --init --recursive
-```
-2. Edit the ```volume``` field in ```docker-compose.yml``` to fit your internal storage structure
-3. Build Docker image with Docker compose
-```console
-$ docker compose build
-```
-4. Accept EULA:
-https://docs.omniverse.nvidia.com/platform/latest/common/NVIDIA_Omniverse_License_Agreement.html  
-5. Start Isaac Sim Docker container
-Open a new terminal (Terminal 1)
-```console
-# Optional: Cancel local X display via TCP socket, especially if using SSH with X11 forwarding
-$ export DISPLAY=:0
+# NVIDIA Container Toolkit
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
+  sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 
-$ xhost +local:root
-$ cd hsr-omniverse
-$ docker compose up
-```
-6. Start Rviz visualization
-Open a new terminal (Terminal 2)
-```console
-$ cd hsr-omniverse
-$ docker compose exec ros /ros_entrypoint.sh rviz -d /hsr-omniverse.rviz
+sudo apt update
+sudo apt install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+
+# コンテナから GPU が見えるか確認
+docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
 ```
 
-### How to start ihsrb cli interface under docker environment
+### 3. リポジトリのクローン
 
-Start the simulator:
+```bash
+git clone --recursive https://github.com/ry0hei-kobayashi/hsr-omniverse.git
+cd hsr-omniverse
 
-```console
-$ docker compose -f docker-compose-ros2.yml build
-$ docker compose -f docker-compose-ros2.yml up
+# --recursive を忘れた場合は:
+git submodule update --init --recursive
 ```
 
-Open the another terminal and connect to the ROS container:
+### 4. キャッシュディレクトリ作成と X11 許可
 
-```console
-$ docker compose -f docker-compose-ros2.yml exec ros bash
-$ source /ws/install/setup.bash
-$ ros2 run hsrb_interface_py ihsrb.py
+```bash
+# キャッシュディレクトリ(docker-compose でマウントされる)
+mkdir -p ~/.hsr-omniverse/cache/{kit,ov,pip,glcache,computecache,data}
+mkdir -p ~/.hsr-omniverse/logs
+
+# コンテナから GUI を出すための許可(ログインのたびに必要)
+xhost +local:root
 ```
 
-Now, you can use cli commands and APIs as described in 
-the [package documentation](https://github.com/hsr-project/hsrb_interfaces/blob/humble/hsrb_interface_py/PKGDOC.rst) and [developer manual](https://docs.hsr.io/hsr_develop_manual/reference/python.html).
+### 5. ビルド
+
+```bash
+docker compose -f docker-compose-ros2.yml build
+```
+
+初回は数時間かかります(Isaac Sim 4.5 のベースイメージが約 20GB、加えて HSR 関連パッケージの colcon ビルド)。
+
+### 6. 起動
+
+```bash
+docker compose -f docker-compose-ros2.yml up
+```
+
+Isaac Sim の初回起動は 10〜20 分かかります(シェーダーコンパイル、USD 読み込み)。2 回目以降はマウントしたキャッシュが効くので速くなります。
+
+RViz は ROS 2 スタックの一部として自動で立ち上がりますが、別途立ち上げたい場合は別ターミナルで:
+
+```bash
+docker compose -f docker-compose-ros2.yml exec ros2 \
+  /ros_entrypoint.sh rviz2 -d /hsr-omniverse.rviz
+```
+
+### 7. ROS 2 トピックの確認
+
+別ターミナルから:
+
+```bash
+docker compose -f docker-compose-ros2.yml exec ros2 bash
+source /opt/ros/humble/setup.bash
+source /ws/install/setup.bash
+ros2 topic list
+```
+
+### 終了
+
+```bash
+# `docker compose up` を実行しているターミナルで Ctrl+C
+# または別ターミナルから:
+docker compose -f docker-compose-ros2.yml down
+```
+
+---
+
+## Troubleshooting
+
+### Ubuntu インストーラーが RTX 40 系で真っ暗になる
+
+最近のカーネル + RTX 40 系の組み合わせで、デフォルトの GRUB エントリでは画面初期化に失敗することがあります。GRUB メニューで **Ubuntu (safe graphics)** を選択してください。インストール完了後は通常エントリで起動できることがほとんどです。
+
+### `usermod` 後も `/var/run/docker.sock` で permission denied
+
+グループ情報はログイン時に読み込まれます。`sudo gpasswd -a $USER docker` の後、**ログアウト→ログイン**(またはリブート)が必要です。`newgrp docker` は現在のシェル限定です。
+
+ログイン後も `groups` に `docker` が出ない場合は、`sudo gpasswd -a $USER docker` をもう一度実行してみてください(`usermod -aG` が反映されないケースがあります)。
+
+### Isaac Sim ウィンドウが真っ黒・空のまま
+
+初回の USD 読み込みとシェーダーコンパイルで 10〜20 分かかります。`docker compose up` のターミナルでログが流れ続けていれば動作中の証拠です。キャッシュができれば 2 回目以降は速くなります。
+
+### `Invalid frame ID "map"` の警告がターミナルに大量に流れる
+
+map サーバーや自己位置推定が起動完了する前に出る TF ルックアップ警告で、致命的ではありません。それ以外の機能は正常に動きます。
+
+### `xhost` で GUI が表示されない
+
+`xhost +local:root` は**ログインのたびに**ホスト側で実行する必要があります。永続化したい場合は `~/.bashrc` に追加してください:
+
+```bash
+echo 'xhost +local:root > /dev/null 2>&1' >> ~/.bashrc
+```
+
+---
+
