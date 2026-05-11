@@ -1,0 +1,3 @@
+# 開発時のローカル設定(各自の環境固有のため Git 管理外)
+.env
+docker-compose.dev.yml
