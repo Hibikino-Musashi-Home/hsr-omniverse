@@ -13,6 +13,10 @@
 #
 #   3. interior_agent/run.sh から起動(推奨):
 #        ./interior_agent/run.sh kujiale_0003
+#
+# 環境変数:
+#   INTERIOR_AGENT_SCENE  使用するシーン名(例: kujiale_0003)
+#   HIDE_CEILING          1/true で天井を非表示(デフォルト: 1)
 
 import os
 
@@ -37,6 +41,12 @@ EXTRA_LIGHT_INTENSITY = 3e4
 # カメラ視点
 CAMERA_EYE = [5.0, 5.0, 3.0]
 CAMERA_TARGET = [0.0, 0.0, 1.0]
+
+# 天井を非表示にする(環境変数 HIDE_CEILING で上書き可能、デフォルト True)
+HIDE_CEILING = os.environ.get("HIDE_CEILING", "1").lower() in ("1", "true", "yes", "on")
+
+# 天井判定用のキーワード(Prim 名にこれらが含まれていれば天井とみなす)
+CEILING_KEYWORDS = ["ceiling", "Ceiling", "roof", "Roof"]
 
 # ============================================================
 # Isaac Sim の起動
@@ -117,6 +127,38 @@ if EXTRA_LIGHT_INTENSITY > 0:
 
 BACKGROUND_STAGE_PATH = "/background"
 stage.add_reference_to_stage(scene_usda, BACKGROUND_STAGE_PATH)
+
+
+def hide_ceiling_prims():
+    """シーン内の天井に該当する Prim を非表示にする。
+
+    InteriorAgent のシーンでは `ceiling` や `Ceiling` を名前に含む
+    Prim が天井に対応しているので、それらの visibility を invisible にする。
+    """
+    usd_stage = omni.usd.get_context().get_stage()
+    if usd_stage is None:
+        print("[sample-interior] 天井非表示: stage が取得できないのでスキップ")
+        return
+
+    hidden_count = 0
+    background_prim = usd_stage.GetPrimAtPath(BACKGROUND_STAGE_PATH)
+    if not background_prim.IsValid():
+        print(f"[sample-interior] 天井非表示: {BACKGROUND_STAGE_PATH} が存在しないのでスキップ")
+        return
+
+    for prim in Usd.PrimRange(background_prim):
+        prim_name = prim.GetName()
+        if any(keyword in prim_name for keyword in CEILING_KEYWORDS):
+            imageable = UsdGeom.Imageable(prim)
+            if imageable:
+                imageable.MakeInvisible()
+                hidden_count += 1
+
+    print(f"[sample-interior] 天井非表示: {hidden_count} 個の Prim を非表示にしました")
+
+
+if HIDE_CEILING:
+    hide_ceiling_prims()
 
 # ============================================================
 # HSR の配置
