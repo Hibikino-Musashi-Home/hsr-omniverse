@@ -3,7 +3,6 @@
 NVIDIA Omniverse / Isaac Sim 上で HSR を扱うためのリポジトリ。
 
 > **Note:** この README は **ROS 2 Humble + Isaac Sim 4.5**(現行の開発対象)向けの手順を記載しています。
-> ROS Noetic / Isaac Sim 2023.1.1 用の旧手順は本文末尾に残しています。
 
 ---
 
