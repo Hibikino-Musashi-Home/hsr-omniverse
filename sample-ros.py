@@ -322,6 +322,19 @@ else:
     rospy.Service('/gazebo/get_world_properties', GetWorldProperties, handle_get_world_properties)
     rospy.Service('/gazebo/get_model_state', GetModelState, handle_get_model_state)
 
+
+
+##########
+# LiDAR ビーム可視化を非表示
+_lidar_path = "/hsrb/hsrb/base_range_sensor_link/Lidar"
+_lidar_prim = omni.usd.get_context().get_stage().GetPrimAtPath(_lidar_path)
+if _lidar_prim.IsValid():
+    _draw_attr = _lidar_prim.GetAttribute("drawLines")
+    if _draw_attr and _draw_attr.IsValid():
+        _draw_attr.Set(False)
+        print(f"[sample-ros] LiDAR ビーム非表示: {_lidar_path}")
+##########
+
 while kit.is_running():
     # Run with a fixed step size
     simulation_context.step(render=True)
