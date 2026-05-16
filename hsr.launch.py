@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import os
+
 import xacro
-
 from ament_index_python.packages import get_package_share_directory
-
-from launch import LaunchDescription, LaunchContext
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction
+from launch import LaunchContext, LaunchDescription
+from launch.actions import (DeclareLaunchArgument, GroupAction,
+                            IncludeLaunchDescription, OpaqueFunction)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch_xml.launch_description_sources import XMLLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-
 from launch_ros.actions import Node, SetParameter
+from launch_xml.launch_description_sources import XMLLaunchDescriptionSource
 
 
 def declare_arguments():
@@ -37,8 +36,7 @@ def render_xacro_and_launch_robot_state_publisher(context: LaunchContext, args: 
     robot_description_content = xacro.process_file(
         os.path.join(
             get_package_share_directory(
-                context.perform_substitution(args['description_package'])
-            ),
+                context.perform_substitution(args['description_package'])),
             'robots',
             context.perform_substitution(args['description_file']),
         ),
@@ -68,11 +66,9 @@ def generate_launch_description():
     relay_node = GroupAction(
         actions=[
             IncludeLaunchDescription(
-                XMLLaunchDescriptionSource(
-                    [
-                        'hsrb_relay_topics.launch.xml',
-                    ]
-                ),
+                XMLLaunchDescriptionSource([
+                    'hsrb_relay_topics.launch.xml',
+                ]),
             )
         ]
     )
@@ -80,11 +76,9 @@ def generate_launch_description():
     sensor_frames = GroupAction(
         actions=[
             IncludeLaunchDescription(
-                XMLLaunchDescriptionSource(
-                    [
-                        'hsrb_sensor_frames.launch.xml',
-                    ]
-                ),
+                XMLLaunchDescriptionSource([
+                    'hsrb_sensor_frames.launch.xml',
+                ]),
             )
         ]
     )
@@ -99,20 +93,20 @@ def generate_launch_description():
         remappings=[('robot_description', '/robot_description')],
     )
 
-    robot_state_publisher = OpaqueFunction(function=render_xacro_and_launch_robot_state_publisher, args=[args])
+    robot_state_publisher = OpaqueFunction(
+        function=render_xacro_and_launch_robot_state_publisher, args=[args]
+    )
 
     common = GroupAction(
         actions=[
             IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    [
-                        os.path.join(
-                            get_package_share_directory('hsrb_common_launch'),
-                            'launch',
-                            'hsrb_common.launch.py',
-                        )
-                    ]
-                ),
+                PythonLaunchDescriptionSource([
+                    os.path.join(
+                        get_package_share_directory('hsrb_common_launch'),
+                        'launch',
+                        'hsrb_common.launch.py',
+                    )
+                ]),
                 launch_arguments={
                     'use_sim_time': 'true',
                     'use_navigation': 'true',
@@ -120,7 +114,7 @@ def generate_launch_description():
                         get_package_share_directory('tmc_wrs_gazebo_worlds'),
                         'maps',
                         'wrs2020',
-                        'map.yaml'
+                        'map.yaml',
                     ),
                     'use_manipulation': 'true',
                     'use_teleop': 'false',
@@ -133,23 +127,19 @@ def generate_launch_description():
     moveit = GroupAction(
         actions=[
             IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    [
-                        os.path.join(
-                            get_package_share_directory('hsrb_moveit_config'),
-                            'launch',
-                            'hsrb_demo.launch.py',
-                        )
-                    ]
-                ),
-                launch_arguments={
-                    'use_sim_time': 'true'
-                }.items(),
+                PythonLaunchDescriptionSource([
+                    os.path.join(
+                        get_package_share_directory('hsrb_moveit_config'),
+                        'launch',
+                        'hsrb_demo.launch.py',
+                    )
+                ]),
+                launch_arguments={'use_sim_time': 'true'}.items(),
             ),
         ]
     )
 
-    #task_evaluators = GroupAction(
+    # task_evaluators = GroupAction(
     #    actions=[
     #        IncludeLaunchDescription(
     #            PythonLaunchDescriptionSource(
@@ -166,15 +156,12 @@ def generate_launch_description():
     #            }.items(),
     #        ),
     #    ]
-    #)
+    # )
 
     odom = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
-            os.path.join(
-                get_package_share_directory('hsrb_bringup'),
-                'launch',
-                'odoms.py'
-            )
+            os.path.join(get_package_share_directory(
+                'hsrb_bringup'), 'launch', 'odoms.py')
         ])
     )
 
@@ -186,9 +173,13 @@ def generate_launch_description():
         common,
         moveit,
         odom,
-        #task_evaluators
+        # task_evaluators
     ]
 
     return LaunchDescription(
-        declare_arguments() + [SetParameter(name='use_sim_time', value=True),] + nodes
+        declare_arguments()
+        + [
+            SetParameter(name='use_sim_time', value=True),
+        ]
+        + nodes
     )
