@@ -63,7 +63,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     ros-humble-action-tutorials-interfaces \
     ros-humble-example-interfaces \
     ros-humble-angles \
-    ros-humble-urdf
+    ros-humble-urdf \
+    ros-humble-rmw-cyclonedds-cpp
 RUN /isaac-sim/python.sh -m pip install transforms3d
 
 RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
@@ -82,19 +83,20 @@ RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
     rm -rf tmc_drivers/tmc_pgr_camera && \
     cd .. && \
     colcon build
-ADD ros_entrypoint.sh.ros2 /ros_entrypoint.sh
+ADD assets/ros_entrypoint.sh.ros2 /ros_entrypoint.sh
 
-RUN curl -sSL https://raw.githubusercontent.com/NVIDIA-Omniverse/IsaacSim-ros_workspaces/main/humble_ws/fastdds.xml -o /fastdds.xml
-
-ENV FASTRTPS_DEFAULT_PROFILES_FILE /fastdds.xml
+# RUN curl -sSL https://raw.githubusercontent.com/NVIDIA-Omniverse/IsaacSim-ros_workspaces/main/humble_ws/fastdds.xml -o /fastdds.xml
+# ENV FASTRTPS_DEFAULT_PROFILES_FILE /fastdds.xml
+COPY assets/cyclonedds.xml /cyclonedds.xml
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 WORKDIR /isaac-sim
 
 RUN mkdir /app
 WORKDIR /app
-ADD hsr.py /app/hsr.py
-ADD ros2_bridge.py /app/ros2_bridge.py
-ADD sample-ros.py /app/sample-ros.py
+ADD scripts/hsr.py /app/hsr.py
+ADD scripts/ros2_bridge.py /app/ros2_bridge.py
+ADD scripts/launch_isaacsim.py /app/launch_isaacsim.py
 ADD usd /app/usd
 
 ENV NVIDIA_VISIBLE_DEVICES \
@@ -105,4 +107,4 @@ ENV PYTHONUNBUFFERED 1
 
 ENTRYPOINT [ "/ros_entrypoint.sh" ]
 
-CMD [ "/isaac-sim/python.sh", "/app/sample-ros.py"]
+CMD [ "/isaac-sim/python.sh", "/app/launch_isaacsim.py"]

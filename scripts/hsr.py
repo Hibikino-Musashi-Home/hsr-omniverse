@@ -140,6 +140,7 @@ def og_ros_node(name):
 
 if is_ros2 is False:
     print('local module import ')
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '3rdparty'))
     from OgnROS1ActionFollowJointTrajectory import \
         InternalState as semuInternalState
     from OgnROS1ActionGripperCommand import \

@@ -5,8 +5,8 @@ version: "2.3"
 services:
   ros2:
     build:
-      context: .
-      dockerfile: Dockerfile.ros2
+      context: ..
+      dockerfile: env_docker/Dockerfile.ros2
     ipc: host
     network_mode: host
     deploy:
@@ -18,17 +18,21 @@ services:
       - DISPLAY
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=graphics
+      - CYCLONEDDS_URI=${CYCLONEDDS_URI:-file:///cyclonedds.xml}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+    volumes:
+      - ../assets/cyclonedds.pc.xml:/cyclonedds.pc.xml:ro
     security_opt:
       - seccomp:unconfined
   cacheproxy:
     build:
-      context: .
-      dockerfile: Dockerfile.cacheproxy
+      context: ..
+      dockerfile: env_docker/Dockerfile.cacheproxy
     network_mode: host
   isaacsim:
     build:
-      context: .
-      dockerfile: Dockerfile.isaacsim-ros2
+      context: ..
+      dockerfile: env_docker/Dockerfile.isaacsim-ros2
     ipc: host
     network_mode: host
     security_opt:
@@ -46,7 +50,10 @@ services:
       - http_proxy=http://127.0.0.1:3128
       - NVIDIA_VISIBLE_DEVICES=all
       - HSR_ROS_VERSION=2
+      - CYCLONEDDS_URI=${CYCLONEDDS_URI:-file:///cyclonedds.xml}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
     volumes:
+      - ../assets/cyclonedds.pc.xml:/cyclonedds.pc.xml:ro
       #- /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
       #- /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
       - ${HOME}/.hsr-omniverse/cache/kit:/isaac-sim/kit/cache:rw

@@ -59,13 +59,13 @@ WORKDIR /isaac-sim
 RUN /isaac-sim/python.sh -m pip install rospkg
 
 WORKDIR /app
-COPY hsr.py /app/hsr.py
-COPY sample-ros.py /app/sample-ros.py
+COPY scripts/hsr.py /app/hsr.py
+COPY scripts/launch_isaacsim.py /app/launch_isaacsim.py
 
-COPY OgnROS1ActionFollowJointTrajectory.py /app/OgnROS1ActionFollowJointTrajectory.py
-COPY OgnROS1ActionGripperCommand.py /app/OgnROS1ActionGripperCommand.py
+COPY 3rdparty/OgnROS1ActionFollowJointTrajectory.py /app/OgnROS1ActionFollowJointTrajectory.py
+COPY 3rdparty/OgnROS1ActionGripperCommand.py /app/OgnROS1ActionGripperCommand.py
 
 COPY usd /app/usd
 
 ENTRYPOINT ["/ros_entrypoint.sh"]
-CMD ["/isaac-sim/python.sh", "/app/sample-ros.py"]
+CMD ["/isaac-sim/python.sh", "/app/launch_isaacsim.py"]

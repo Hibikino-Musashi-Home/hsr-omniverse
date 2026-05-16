@@ -69,37 +69,77 @@ mkdir -p ~/.hsr-omniverse/logs
 xhost local:
 ```
 
-### 4. ビルド
+### 4. ビルド・起動
+
+操作は `Makefile` 経由で統一しています。コマンドは `make {ros1|ros2} <action> [pc]` のかたちで組み合わせます (デフォルト `ros2`、`pc` 修飾子は `ros2` 限定)。
 
 ```bash
-docker compose -f docker-compose-ros2.yml build
+# ROS2 Humble (デフォルト)
+make ros2 build               # 全イメージをビルド
+make ros2 up                  # standalone モード起動 (host ローカル、ROS_DOMAIN_ID=0)
+make ros2 up pc               # PC モード (CycloneDDS PC + ROS_DOMAIN_ID=55)
+ROS_DOMAIN_ID=49 make ros2 up pc  # Domain ID を上書き
+make ros2 down                # 停止
+make ros2 ps                  # コンテナ状態
+make ros2 ros                 # ros2 コンテナで bash
+make ros2 isaacsim            # isaacsim コンテナで bash
+make ros2 logs                # ログを tail
+
+# ROS1 Noetic
+make ros1 build
+make ros1 up
+make ros1 ros                 # ros-noetic コンテナで bash
+
+# 単語の順序は問いません: make pc up ros2 でも同じ
+# 不正な組合せはエラー: make ros1 up pc → 'pc' requires ros2
+
+make                          # 引数なし → help (現在の解決状態も表示)
 ```
 
-### 5. 起動
-
-```bash
-docker compose -f docker-compose-ros2.yml up
-```
+裏側で参照する compose ファイル:
+- `ros2` → `env_docker/docker-compose-ros2.yml`
+- `ros1` → `env_docker/docker-compose.yml`
 
 Isaac Sim の初回起動は 10〜20 分かかります(シェーダーコンパイル、USD 読み込み)。2 回目以降はマウントしたキャッシュが効くので速くなります。
 
-### 6. ROS 2 トピックの確認
+### 5. ROS 2 トピックの確認
 
 別ターミナルから:
 
 ```bash
-docker compose -f docker-compose-ros2.yml exec ros2 bash
+make ros2 ros
+# コンテナ内で:
 source /opt/ros/humble/setup.bash
 source /ws/install/setup.bash
 ros2 topic list
 ```
 
-### 終了
+### 別 PC からアクセスする (CycloneDDS PC モード, ROS2 のみ)
+
+別マシンの ROS 2 (例: HSR 実機) と通信したい場合は `make ros2 up pc` を使います (ROS1 と組み合わせるとエラー)。事前に `assets/cyclonedds.pc.xml` を環境に合わせて編集してください:
+
+- `<NetworkInterface name="..."/>` をホストの NIC 名に (`ip -br addr` で確認)
+- `<Peer Address="192.168.11.5"/>` を相手 (ロボット/PC) の IP に
 
 ```bash
-# `docker compose up` を実行しているターミナルで Ctrl+C
-# または別ターミナルから:
-docker compose -f docker-compose-ros2.yml down
+make ros2 up pc                       # ROS_DOMAIN_ID=55 (Makefile デフォルト)
+ROS_DOMAIN_ID=49 make ros2 up pc      # Domain ID を上書き
 ```
 
+`pc` 修飾子は `CYCLONEDDS_URI=file:///cyclonedds.pc.xml` と `ROS_DOMAIN_ID` を export して compose を起動します。`assets/cyclonedds.pc.xml` は常時 bind mount されているのでイメージのリビルドは不要です。
+
 ---
+
+## ディレクトリ構成
+
+```
+.
+├── 3rdparty/      # 外部由来モジュール (OgnROS1Action*.py)
+├── assets/        # 設定/リソース (cyclonedds.xml, cyclonedds.pc.xml, ros_entrypoint.sh.ros2, hsr-omniverse.rviz)
+├── env_docker/    # Dockerfile.* と docker-compose*.yml
+├── launch/        # ROS1/ROS2 launch ファイル
+├── scripts/       # 実行スクリプト (hsr.py, ros2_bridge.py, launch_isaacsim.py, sample-*.py 他)
+└── usd/           # USD アセット
+```
+
+エントリポイント: `scripts/launch_isaacsim.py` (旧 `sample-ros.py`)。Isaac Sim から HSR を起動するメインスクリプト。

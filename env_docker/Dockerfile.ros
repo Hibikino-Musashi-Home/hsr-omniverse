@@ -55,7 +55,7 @@ RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
     cd / && \
     rm -rf /ws
 
-ADD hsr.launch /hsr.launch
-ADD hsr-omniverse.rviz /hsr-omniverse.rviz
+ADD launch/hsr.launch /hsr.launch
+ADD assets/hsr-omniverse.rviz /hsr-omniverse.rviz
 
 CMD [ "roslaunch", "/hsr.launch" ]

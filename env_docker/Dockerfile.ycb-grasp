@@ -74,7 +74,7 @@ RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
     rm -rf tmc_drivers/tmc_pgr_camera && \
     cd .. && \
     colcon build
-ADD ros_entrypoint.sh.ros2 /ros_entrypoint.sh
+ADD assets/ros_entrypoint.sh.ros2 /ros_entrypoint.sh
 
 RUN curl -sSL https://raw.githubusercontent.com/NVIDIA-Omniverse/IsaacSim-ros_workspaces/main/humble_ws/fastdds.xml -o /fastdds.xml
 
@@ -91,8 +91,8 @@ ENV NVIDIA_DRIVER_CAPABILITIES all
 
 ENV PYTHONUNBUFFERED 1
 
-# Ensure the repo root is importable as a module (for `import hsr`).
-ENV PYTHONPATH=/workspace:${PYTHONPATH}
+# Ensure the scripts dir is importable as a module (for `import hsr`).
+ENV PYTHONPATH=/workspace/scripts:${PYTHONPATH}
 
 ENTRYPOINT [ "/ros_entrypoint.sh" ]
-CMD [ "/isaac-sim/python.sh", "/workspace/sample-ycb-grasp.py"]
+CMD [ "/isaac-sim/python.sh", "/workspace/scripts/sample-ycb-grasp.py"]

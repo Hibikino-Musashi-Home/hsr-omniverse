@@ -2,8 +2,8 @@ version: "2.3"
 services:
   ycb-grasp:
     build:
-      context: .
-      dockerfile: Dockerfile.ycb-grasp
+      context: ..
+      dockerfile: env_docker/Dockerfile.ycb-grasp
     ipc: host
     network_mode: host
     security_opt:

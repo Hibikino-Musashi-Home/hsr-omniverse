@@ -57,6 +57,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     ros-humble-example-interfaces \
     ros-humble-diagnostic-updater \
     ros-humble-std-srvs \
+    ros-humble-rmw-cyclonedds-cpp \
     #ros-humble-pcl \
     libode-dev \
     ipython3 \
@@ -147,18 +148,20 @@ RUN source /opt/ros/$ROS_DISTRO/setup.bash && \
 #    cd .. && \
 #    colcon build
 
-RUN curl -sSL https://raw.githubusercontent.com/NVIDIA-Omniverse/IsaacSim-ros_workspaces/main/humble_ws/fastdds.xml -o /fastdds.xml
-ENV FASTRTPS_DEFAULT_PROFILES_FILE /fastdds.xml
+# RUN curl -sSL https://raw.githubusercontent.com/NVIDIA-Omniverse/IsaacSim-ros_workspaces/main/humble_ws/fastdds.xml -o /fastdds.xml
+# ENV FASTRTPS_DEFAULT_PROFILES_FILE /fastdds.xml
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 
 RUN curl -sSL https://github.com/hsr-project/hsrb_rosnav/raw/refs/heads/master/hsrb_rosnav_config/maps/white_space/map.yaml -o /map.yaml
 RUN curl -sSL https://github.com/hsr-project/hsrb_rosnav/raw/refs/heads/master/hsrb_rosnav_config/maps/white_space/white_space.pgm -o /white_space.pgm
 
-ADD hsr.launch.py /hsr.launch.py
-ADD hsrb_relay_topics.launch.xml /hsrb_relay_topics.launch.xml
-ADD hsrb_sensor_frames.launch.xml /hsrb_sensor_frames.launch.xml
-ADD hsr-omniverse.rviz /hsr-omniverse.rviz
+ADD launch/hsr.launch.py /hsr.launch.py
+ADD launch/hsrb_relay_topics.launch.xml /hsrb_relay_topics.launch.xml
+ADD launch/hsrb_sensor_frames.launch.xml /hsrb_sensor_frames.launch.xml
+ADD assets/hsr-omniverse.rviz /hsr-omniverse.rviz
 
-ADD ros_entrypoint.sh.ros2 /ros_entrypoint.sh
+COPY assets/cyclonedds.xml /cyclonedds.xml
+ADD assets/ros_entrypoint.sh.ros2 /ros_entrypoint.sh
 
 CMD [ "ros2", "launch", "/hsr.launch.py" ]
 #CMD [ "tail", "-f", "/dev/null" ]

@@ -3,53 +3,43 @@
 # All rights reserved.
 version: "2.3"
 services:
-  ros-noetic:
+  ros:
     build:
-      context: .
-      dockerfile: Dockerfile.ros
+      context: ..
+      dockerfile: env_docker/Dockerfile.ros
     ipc: host
     network_mode: host
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
+    runtime: nvidia
     environment:
       - DISPLAY
-      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=1
       - NVIDIA_DRIVER_CAPABILITIES=graphics
     security_opt:
       - seccomp:unconfined
   cacheproxy:
     build:
-      context: .
-      dockerfile: Dockerfile.cacheproxy
+      context: ..
+      dockerfile: env_docker/Dockerfile.cacheproxy
     network_mode: host
   isaacsim:
     build:
-      context: .
-      dockerfile: Dockerfile.isaacsim
+      context: ..
+      dockerfile: env_docker/Dockerfile.isaacsim
     ipc: host
     network_mode: host
     security_opt:
       - seccomp:unconfined
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - capabilities: [gpu]
+    runtime: nvidia
     devices:
       - /dev/dri:/dev/dri
     environment:
       - DISPLAY
       - ACCEPT_EULA=Y
       - http_proxy=http://127.0.0.1:3128
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
-      - HSR_ROS_VERSION=1
+      - CUDA_VISIBLE_DEVICES=1
     volumes:
-      #- /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
-      #- /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
+      - /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
+      - /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
       - ${HOME}/.hsr-omniverse/cache/kit:/isaac-sim/kit/cache:rw
       - ${HOME}/.hsr-omniverse/cache/ov:/root/.cache/ov:rw
       - ${HOME}/.hsr-omniverse/cache/pip:/root/.cache/pip:rw
@@ -58,15 +48,5 @@ services:
       - ${HOME}/.hsr-omniverse/cache/data:/root/.local/share/ov/data:rw
       - ${HOME}/.hsr-omniverse/logs:/root/.nvidia-omniverse/logs:rw
     depends_on:
-      - ros-noetic
+      - ros
       - cacheproxy
-    #command:
-    #  - /bin/bash
-    #  - -lc
-    #  - |
-    #    rm -rf /root/.local/share/ov/data/* \
-    #           /isaac-sim/kit/cache/* \
-    #           /root/.cache/ov/* \
-    #           /root/.cache/nvidia/GLCache/* \
-    #           /root/.nv/ComputeCache/* && \
-    #    /isaac-sim/python.sh /app/sample-ros.py

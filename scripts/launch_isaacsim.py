@@ -12,11 +12,22 @@ import os
 import xml.etree.ElementTree as ET
 
 import numpy as np
+from isaacsim.simulation_app import SimulationApp
+
+kit = SimulationApp({
+    'renderer': 'RayTracedLighting',
+    'headless': False,
+    'extra_args': [
+        '--/app/extensions/excluded/0=isaacsim.asset.importer.urdf',
+        '--/app/extensions/excluded/1=isaacsim.ros2.urdf',
+    ],
+})
+kit.set_setting('/app/extensions/installUntrustedExtensions', True)
+
 import omni.kit.commands
 from isaacsim.core.api.materials.physics_material import PhysicsMaterial
 from isaacsim.core.version import get_version
 from isaacsim.sensors.physics import ContactSensor
-from isaacsim.simulation_app import SimulationApp
 from isaacsim.storage.native import get_assets_root_path
 from omni.isaac.core import SimulationContext
 from omni.isaac.core.prims import GeometryPrim
@@ -29,16 +40,6 @@ from pxr import (Gf, PhysicsSchemaTools, PhysxSchema, Sdf, Usd, UsdGeom,
 from tmc_wrs_gazebo_worlds import randomizer
 
 import hsr
-
-kit = SimulationApp({
-    'renderer': 'RayTracedLighting',
-    'headless': False,
-    'extra_args': [
-        '--/app/extensions/excluded/0=isaacsim.asset.importer.urdf',
-        '--/app/extensions/excluded/1=isaacsim.ros2.urdf',
-    ],
-})
-kit.set_setting('/app/extensions/installUntrustedExtensions', True)
 
 
 # from omni.isaac.core.materials.physics_material import PhysicsMaterial
