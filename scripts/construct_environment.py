@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import omni.kit.commands
 import omni.usd
@@ -11,6 +11,15 @@ from omni.isaac.core.utils import stage, viewports
 from omni.isaac.core.utils.prims import create_prim
 from omni.isaac.core.utils.rotations import euler_angles_to_quat
 from pxr import Sdf
+
+import scene_dressing
+from dressing_presets import (
+    DEFAULT_LIGHTING,
+    DEFAULT_PRESET,
+    DRESSING_PRESETS,
+    LIGHTING_PRESETS,
+    list_presets,
+)
 
 
 OBJECT_COLLECTION_PATH = "/World/YcbObjects"
@@ -266,3 +275,77 @@ def clear_spawned_objects(
     child_paths = [str(child.GetPath()) for child in parent_prim.GetChildren()]
     if child_paths:
         omni.kit.commands.execute("DeletePrims", paths=child_paths)
+
+
+def apply_lab_dressing(
+    preset: str = DEFAULT_PRESET,
+    lighting: str = DEFAULT_LIGHTING,
+    **overrides: Any,
+) -> None:
+    """scene_dressing で床テクスチャ + 周囲背景画像 + 照明を適用する。
+
+    Args:
+        preset:    テクスチャプリセット名 (dressing_presets.DRESSING_PRESETS のキー)。
+                   例: "lab", "floor_only", "backdrop_only" など。
+        lighting:  照明プリセット名 (dressing_presets.LIGHTING_PRESETS のキー)。
+                   例: "default", "bright", "dim", "warm", "off" など。
+        **overrides: EnvBoxConfig の個別フィールドを直接上書き。
+                     プリセットより優先される (= 一時的な微調整に便利)。
+
+    使い方:
+        apply_lab_dressing()                              # 全部デフォルト
+        apply_lab_dressing(lighting="bright")             # ラボを明るく
+        apply_lab_dressing(preset="office")               # 別テーマ
+        apply_lab_dressing(ceiling_intensity=2.5e5)       # 微調整
+        apply_lab_dressing(preset="lab",
+                           floor_texture="/data/other.jpg")  # 床だけ差し替え
+
+    重要: omni.timeline.get_timeline_interface().play() の "後" に呼ぶこと。
+          PhysX セットアップ前に呼ぶとシーン状態が壊れることがある。
+    """
+    if preset not in DRESSING_PRESETS:
+        raise KeyError(
+            f"Unknown dressing preset '{preset}'. "
+            f"Available: {list(DRESSING_PRESETS.keys())}"
+        )
+    if lighting not in LIGHTING_PRESETS:
+        raise KeyError(
+            f"Unknown lighting preset '{lighting}'. "
+            f"Available: {list(LIGHTING_PRESETS.keys())}"
+        )
+
+    # プリセットを合成して上書きをかける (右側が強い)
+    params: Dict[str, Any] = {}
+    params.update(DRESSING_PRESETS[preset])
+    params.update(LIGHTING_PRESETS[lighting])
+    params.update(overrides)
+
+    # 拡張キー (EnvBoxConfig 対象外) を取り出す
+    default_lights_intensity = params.pop("default_lights_intensity", None)
+
+    log(f"apply_lab_dressing: preset='{preset}' lighting='{lighting}' "
+        f"overrides={list(overrides.keys())}")
+    config = scene_dressing.EnvBoxConfig(**params)
+    scene_dressing.apply_env_box(config)
+
+    # 既存ライト (/World/Light_1, /World/Light_2) の強度をプリセットに連動させる
+    if default_lights_intensity is not None:
+        _set_default_lights_intensity(float(default_lights_intensity))
+
+
+def _set_default_lights_intensity(intensity: float) -> None:
+    """launch_isaacsim.py が作る /World/Light_1, /World/Light_2 の強度を設定。
+
+    scene_dressing のライティングプリセットが効いて見えるためには、既存ライトを
+    プリセットに合わせて連動させる必要がある (固定 5e4 だとドミネートする)。
+    """
+    _stage = omni.usd.get_context().get_stage()
+    for path in ("/World/Light_1", "/World/Light_2"):
+        prim = _stage.GetPrimAtPath(path)
+        if not prim.IsValid():
+            continue
+        attr = prim.GetAttribute("inputs:intensity")
+        if not attr:
+            continue
+        attr.Set(intensity)
+        log(f"既存ライト強度設定: {path} = {intensity}")
