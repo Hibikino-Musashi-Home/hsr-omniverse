@@ -40,6 +40,7 @@ from pxr import (Gf, PhysicsSchemaTools, PhysxSchema, Sdf, Usd, UsdGeom,
 from tmc_wrs_gazebo_worlds import randomizer
 
 import hsr
+import construct_environment
 
 
 # from omni.isaac.core.materials.physics_material import PhysicsMaterial
@@ -292,6 +293,12 @@ kit.update()
 _hsr.onsimulationstart(simulation_context)
 simulation_context.initialize_physics()
 omni.timeline.get_timeline_interface().play()
+
+# ラボ環境テクスチャ (床 + 周囲背景 + 照明) を適用。
+# timeline.play() の "後" でないと PhysX セットアップを壊すので注意。
+construct_environment.apply_lab_dressing(lighting="dim")
+for _ in range(3):
+    kit.update()
 
 
 # simulate gazebo ros APIs required for task evaluators
