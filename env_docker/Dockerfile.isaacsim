@@ -70,6 +70,8 @@ COPY 3rdparty/OgnROS1ActionFollowJointTrajectory.py /app/OgnROS1ActionFollowJoin
 COPY 3rdparty/OgnROS1ActionGripperCommand.py /app/OgnROS1ActionGripperCommand.py
 
 COPY usd /app/usd
+# プレースホルダテクスチャを焼き込んで、マウントなしでも動くようにする
+COPY configs/textures /data/textures
 
 ENTRYPOINT ["/ros_entrypoint.sh"]
 CMD ["/isaac-sim/python.sh", "/app/launch_isaacsim.py"]
