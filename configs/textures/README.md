@@ -30,16 +30,6 @@ bind mount (compose) とイメージ焼き込み (Dockerfile) の両方で設定
 - **mount あり**: ホスト側 `configs/textures/` の編集が即反映 (build 不要)
 - **mount なし**: イメージに焼き込まれた版が使われる (完全自己完結)
 
-## 再生成
-
-色やラベルを変えて作り直したいときは:
-
-```bash
-python3 configs/textures/generate_textures.py
-```
-
-(依存: Pillow)
-
 ## 本番テクスチャを使うには
 
 3 通り。お好みの方法で:
