@@ -10,7 +10,7 @@ import omni.usd
 from omni.isaac.core.utils import stage, viewports
 from omni.isaac.core.utils.prims import create_prim
 from omni.isaac.core.utils.rotations import euler_angles_to_quat
-from pxr import Sdf
+from pxr import Sdf, Usd
 
 import scene_dressing
 from dressing_presets import (
@@ -314,6 +314,11 @@ def apply_lab_dressing(
             f"Available: {list(LIGHTING_PRESETS.keys())}"
         )
 
+    # auto-exposure 無効化 + 背景 USD の隠れたライト消灯
+    # (これらがないとプリセット差が見えにくい / 全く見えない)
+    _ensure_renderer_settings_for_lighting()
+    _disable_background_lights()
+
     # プリセットを合成して上書きをかける (右側が強い)
     params: Dict[str, Any] = {}
     params.update(DRESSING_PRESETS[preset])
@@ -349,3 +354,75 @@ def _set_default_lights_intensity(intensity: float) -> None:
             continue
         attr.Set(intensity)
         log(f"既存ライト強度設定: {path} = {intensity}")
+
+
+_BG_LIGHT_TYPES = {
+    "DomeLight", "DistantLight", "RectLight", "DiskLight",
+    "SphereLight", "CylinderLight", "GeometryLight",
+}
+
+
+def _disable_background_lights() -> None:
+    """背景 USD (Grid env など) に焼き込まれた隠れたライトを消灯する。
+
+    Isaac Sim の default_environment.usd は DomeLight (sky HDRI) や DistantLight
+    を内蔵していて、これが scene_dressing 側のライティングプリセットを覆い隠して
+    ドミネートする (intensity を変えても見た目が変わらない原因)。
+    /background 配下のライト型プリムを全部 0 にしてプリセットを効かせる。
+    """
+    _stage = omni.usd.get_context().get_stage()
+    bg_root = _stage.GetPrimAtPath("/background")
+    if not bg_root.IsValid():
+        return
+
+    disabled = 0
+    for prim in Usd.PrimRange(bg_root):
+        if prim.GetTypeName() not in _BG_LIGHT_TYPES:
+            continue
+        attr = prim.GetAttribute("inputs:intensity")
+        if not attr:
+            continue
+        attr.Set(0.0)
+        log(f"背景ライト消灯: {prim.GetPath()} ({prim.GetTypeName()})")
+        disabled += 1
+    if disabled == 0:
+        log("背景に消すべきライトは見つかりませんでした")
+
+
+_renderer_settings_applied = False
+
+
+def _ensure_renderer_settings_for_lighting() -> None:
+    """ライティングプリセットの差を視覚的に出すためのレンダラー設定 (初回 1 回だけ実行)。
+
+    Isaac Sim の RTX レンダラーには 2 系統の自動露出補正がある:
+      1. histogram-based auto-exposure (/rtx/post/histogram/enabled)
+      2. camera-based eye adaptation (カメラの ISO/shutter/f-stop に基づく動的補正)
+
+    両方とも無効化 + カメラ露出を固定値にして、ライティング強度変化が
+    そのままピクセル値に反映されるようにする。
+    """
+    global _renderer_settings_applied
+    if _renderer_settings_applied:
+        return
+    try:
+        import carb.settings
+        s = carb.settings.get_settings()
+
+        # (1) histogram-based auto-exposure 無効
+        s.set("/rtx/post/histogram/enabled", False)
+
+        # (2) tonemap は Reinhard (1) に固定
+        s.set("/rtx/post/tonemap/op", 1)
+
+        # (3) カメラ露出を固定 (ISO 100, シャッター 1/60, F4)
+        # これで eye adaptation 系の自動補正もキャンセル
+        s.set("/rtx/post/tonemap/cameraIsoSensitivity", 100.0)
+        s.set("/rtx/post/tonemap/cameraShutterSpeed", 60.0)
+        s.set("/rtx/post/tonemap/cameraFStop", 4.0)
+
+        log("renderer: auto-exposure OFF, tonemap=Reinhard, "
+            "camera fixed (ISO 100, 1/60 sec, F4)")
+        _renderer_settings_applied = True
+    except Exception as e:
+        log(f"renderer settings setup failed: {e}")

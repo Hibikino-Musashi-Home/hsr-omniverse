@@ -296,7 +296,7 @@ omni.timeline.get_timeline_interface().play()
 
 # ラボ環境テクスチャ (床 + 周囲背景 + 照明) を適用。
 # timeline.play() の "後" でないと PhysX セットアップを壊すので注意。
-construct_environment.apply_lab_dressing(lighting="dim")
+construct_environment.apply_lab_dressing()
 for _ in range(3):
     kit.update()
 
