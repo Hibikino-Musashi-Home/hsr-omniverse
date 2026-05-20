@@ -39,29 +39,29 @@ defaults:
 dressing_presets:
 
   lab:
-    floor_texture: /data/LabTextures/lab_floor.jpg
+    floor_texture: /data/textures/floor.jpg
     backdrop_textures:
-      - /data/LabTextures/lab_wall_1.jpg   # 北 (+Y)
-      - /data/LabTextures/lab_wall_2.jpg   # 南 (-Y)
-      - /data/LabTextures/lab_wall_3.jpg   # 東 (+X)
-      - /data/LabTextures/lab_wall_4.jpg   # 西 (-X)
+      - /data/textures/wall_1.jpg   # 北 (+Y)
+      - /data/textures/wall_2.jpg   # 南 (-Y)
+      - /data/textures/wall_3.jpg   # 東 (+X)
+      - /data/textures/wall_4.jpg   # 西 (-X)
     # floor_tile: 4.0
     # room_size: 15.0
     # room_height: 4.0
 
   # 床のみ (背景なし)
   floor_only:
-    floor_texture: /data/LabTextures/lab_floor.jpg
+    floor_texture: /data/textures/floor.jpg
     backdrop_textures: null
 
   # 背景のみ (床なし)
   backdrop_only:
     floor_texture: null
     backdrop_textures:
-      - /data/LabTextures/lab_wall_1.jpg
-      - /data/LabTextures/lab_wall_2.jpg
-      - /data/LabTextures/lab_wall_3.jpg
-      - /data/LabTextures/lab_wall_4.jpg
+      - /data/textures/wall_1.jpg
+      - /data/textures/wall_2.jpg
+      - /data/textures/wall_3.jpg
+      - /data/textures/wall_4.jpg
 
   # ---- 新しいテーマを足すときの例 (コメントアウト) ----
   # office:

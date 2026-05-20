@@ -42,7 +42,7 @@ defaults:            # ← 起動時に使うプリセットの「名前」を�
 
 dressing_presets:    # ← 床テクスチャ + 背景画像 4 枚の組み合わせ集
   lab:
-    floor_texture: /data/LabTextures/lab_floor.jpg
+    floor_texture: /data/textures/floor.jpg
     backdrop_textures: [...]
   office:
     ...
@@ -235,7 +235,8 @@ make ros2 up
 ### ⚠️ テクスチャパスはコンテナ内パス
 
 `floor_texture` などに書くパスはコンテナ内部のパス。ホスト側のパスではない。
-docker-compose で `${HOME}/datasets/LabTextures:/data/LabTextures:ro` のように bind mount されているので、コンテナ内では `/data/LabTextures/...` を指定する。
+デフォルトでは [`./textures/`](./textures/) を docker-compose が `/data/textures` に bind mount しているので、`/data/textures/...` を指定すれば repo 内のサンプルがそのまま使える。
+本番テクスチャの差し替え方は [`./textures/README.md`](./textures/README.md) を参照。
 
 ## 一覧: 同梱されているプリセット
 
@@ -243,7 +244,7 @@ docker-compose で `${HOME}/datasets/LabTextures:/data/LabTextures:ro` のよう
 
 | 名前 | 説明 |
 |---|---|
-| `lab` | ラボ風(`/data/LabTextures/` 配下の lab_floor, lab_wall_1〜4) |
+| `lab` | ラボ風(`/data/textures/` 配下の floor, wall_1〜4) |
 | `floor_only` | 床のみ、背景なし |
 | `backdrop_only` | 背景のみ、床なし |
 
