@@ -54,6 +54,10 @@ services:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
     volumes:
       - ../assets/cyclonedds.pc.xml:/cyclonedds.pc.xml:ro
+      # configs/ はリリース後の運用調整用に bind mount でホスト側を優先
+      # (イメージにも焼き込みされているのでマウントを外せばイメージ内のデフォルトが使われる)
+      - ../configs:/app/configs:ro
+      - ${HOME}/datasets/LabTextures:/data/LabTextures:ro
       #- /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
       #- /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
       - ${HOME}/.hsr-omniverse/cache/kit:/isaac-sim/kit/cache:rw
