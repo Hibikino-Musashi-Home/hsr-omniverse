@@ -54,6 +54,8 @@ services:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
     volumes:
       - ../assets/cyclonedds.pc.xml:/cyclonedds.pc.xml:ro
+      - ../scripts/launch_isaacsim.py:/app/launch_isaacsim.py:ro
+      - ../worlds:/app/worlds:ro
       #- /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
       #- /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
       - ${HOME}/.hsr-omniverse/cache/kit:/isaac-sim/kit/cache:rw

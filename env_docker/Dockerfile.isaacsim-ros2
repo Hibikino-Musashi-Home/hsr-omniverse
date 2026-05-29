@@ -98,6 +98,7 @@ ADD scripts/hsr.py /app/hsr.py
 ADD scripts/ros2_bridge.py /app/ros2_bridge.py
 ADD scripts/launch_isaacsim.py /app/launch_isaacsim.py
 ADD usd /app/usd
+ADD worlds /app/worlds
 
 ENV NVIDIA_VISIBLE_DEVICES \
         ${NVIDIA_VISIBLE_DEVICES:-all}
