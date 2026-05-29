@@ -221,11 +221,15 @@ def drop_object(gazebo_name, name, x, y, z, yaw=0.0, roll=0.0, pitch=0.0):
     global model_names
     print(f'Drop {name} ({x}, {y}, {z}, {yaw}, {roll}, {pitch})')
     stage_path = f'/{gazebo_name.replace("-", "_")}'
-    model_path = (
-        os.path.dirname(os.path.abspath(__file__)) +
-        '/usd/wrs_models/' + name + '/model.usd'
-    )
-    if not os.path.exists(model_path):
+    model_candidates = [
+        os.path.join(repo_root, 'usd', 'my_models', name, 'model.usd'),
+        os.path.join(model_root, name, 'model.usd'),
+        '/app/usd/my_models/' + name + '/model.usd',
+        '/app/usd/wrs_models/' + name + '/model.usd',
+    ]
+    model_path = next((p for p in model_candidates if os.path.exists(p)), None)
+    if model_path is None:
+        print(f'Model not found for {name}: tried {model_candidates}')
         return
     create_prim(
         prim_path=stage_path,
