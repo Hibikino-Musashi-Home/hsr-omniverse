@@ -9,6 +9,7 @@
 
 import math
 import os
+import threading
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -35,6 +36,7 @@ from omni.isaac.core.prims import GeometryPrim
 from omni.isaac.core.utils import nucleus, stage, viewports
 from omni.isaac.core.utils.prims import create_prim
 from omni.isaac.core.utils.rotations import euler_angles_to_quat
+from omni.isaac.dynamic_control import _dynamic_control
 from omni.physx import get_physx_simulation_interface
 from omni.physx.scripts import utils as physx_utils
 from pxr import (Gf, PhysicsSchemaTools, PhysxSchema, Sdf, Usd, UsdGeom,
@@ -72,6 +74,7 @@ is_ros2 = False
 try:
     import rclpy
     from gazebo_msgs.srv import GetModelState, GetWorldProperties
+    from std_srvs.srv import Empty as EmptySrv
 
     is_ros2 = True
 except ImportError:
@@ -79,6 +82,7 @@ except ImportError:
     from gazebo_msgs.srv import (GetModelState, GetModelStateResponse,
                                  GetWorldProperties,
                                  GetWorldPropertiesResponse)
+    from std_srvs.srv import Empty as EmptySrv, EmptyResponse
 
 try:
     import rosgraph
@@ -187,6 +191,30 @@ model_names = []
 # 適用してロボットがすり抜けないようにする。
 _runtime_rigid_object_paths = []
 repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# ============================================================
+# reset_world 用の状態 (Isaac Sim ネイティブ実装)
+# ============================================================
+# Gazebo の reset_world と同じ「初期状態へ戻す」操作を、Isaac Sim の
+# SimulationContext + dynamic control + USD だけで実現する (Gazebo 非依存)。
+# spawn 時に各動的物体の初期姿勢 (剛体 prim パス + ワールド translation/quat) を
+# ここに記録し、/isaac/reset_world でこの姿勢へ戻す。
+#   要素: {'body_path': str, 'p': (x, y, z), 'q': (w, x, y, z)}
+_spawn_initial_states = []
+
+# サービスコールバック (rclpy executor スレッド) から物理ステップ中に prim を
+# 書き換えるのは危険なので、フラグを立ててメインループ側で物理ステップ間に実行する。
+_reset_requested = False
+_reset_done = threading.Event()
+
+
+def _request_reset_and_wait():
+    """reset_world を要求し、メインループが適用し終えるまでブロックする。"""
+    global _reset_requested
+    _reset_done.clear()
+    _reset_requested = True
+    # メインループが適用 → _reset_done.set() するまで待つ (適用保証)。
+    _reset_done.wait(timeout=5.0)
 model_root = os.path.join(repo_root, 'usd', 'wrs_models')
 if not os.path.exists(model_root):
     model_root = '/app/usd/wrs_models'
@@ -443,6 +471,32 @@ def drop_object(gazebo_name, name, x, y, z, yaw=0.0, roll=0.0, pitch=0.0):
         print('[obj-fix] err %r' % _e, flush=True)
 
     model_names.append(gazebo_name)
+
+    # reset_world 用: この物体の初期姿勢を記録する。剛体 (RigidBodyAPI) が付いた
+    # prim を subtree から探し、その「合成済みワールド変換」を保存する。ワールド変換で
+    # 持つことで Y-up の rotateX(90) 補正や YCB の /body 内部オフセットが自動で正しく
+    # 反映され、reset 時に dc.get_rigid_body(body_path) でそのまま戻せる。
+    try:
+        _rb_prim = next(
+            (p for p in Usd.PrimRange(dropped_prim)
+             if p.HasAPI(UsdPhysics.RigidBodyAPI)),
+            None,
+        )
+        if _rb_prim is not None:
+            _m = UsdGeom.Xformable(_rb_prim).ComputeLocalToWorldTransform(
+                Usd.TimeCode.Default())
+            _t = _m.ExtractTranslation()
+            _q = _m.GetOrthonormalized().ExtractRotationQuat()
+            _qi = _q.GetImaginary()
+            _spawn_initial_states.append({
+                'body_path': str(_rb_prim.GetPath()),
+                'p': (_t[0], _t[1], _t[2]),
+                'q': (_q.GetReal(), _qi[0], _qi[1], _qi[2]),  # (w, x, y, z)
+            })
+    except Exception as _e:
+        print('[reset_world] spawn pose capture failed for %s: %r'
+              % (gazebo_name, _e), flush=True)
+
     return model_path
 
 
@@ -737,6 +791,18 @@ if is_ros2:
         handle_get_model_state_ros2,
         qos_profile=rclpy.qos.qos_profile_services_default,
     )
+
+    def handle_reset_world_ros2(req, ret):
+        # メインループが適用し終えるまでブロックして返す。
+        _request_reset_and_wait()
+        return ret
+
+    _hsr.ros2node.create_service(
+        EmptySrv,
+        '/isaac/reset_world',
+        handle_reset_world_ros2,
+        qos_profile=rclpy.qos.qos_profile_services_default,
+    )
 else:
 
     def handle_get_world_properties(req):
@@ -771,6 +837,33 @@ else:
     rospy.Service('/gazebo/get_model_state',
                   GetModelState, handle_get_model_state)
 
+    def handle_reset_world(req):
+        _request_reset_and_wait()
+        return EmptyResponse()
+
+    rospy.Service('/isaac/reset_world', EmptySrv, handle_reset_world)
+
+def _reset_objects():
+    """spawn した全動的物体を初期姿勢へ戻し、速度をゼロにする。
+
+    把持コード (hsr.py の attach-grasp) と同じく dc.set_rigid_body_pose +
+    速度ゼロを使う。眠っている body はテレポートを無視するので、pose 設定の後に
+    wake_up_rigid_body で起こす。
+    """
+    for s in _spawn_initial_states:
+        h = _hsr.dc.get_rigid_body(s['body_path'])
+        if not h:
+            continue
+        t = _dynamic_control.Transform()
+        t.p = s['p']
+        # DC の Transform.r は (x, y, z, w) 順。保存は (w, x, y, z)。
+        t.r = (s['q'][1], s['q'][2], s['q'][3], s['q'][0])
+        _hsr.dc.set_rigid_body_pose(h, t)
+        _hsr.dc.set_rigid_body_linear_velocity(h, (0.0, 0.0, 0.0))
+        _hsr.dc.set_rigid_body_angular_velocity(h, (0.0, 0.0, 0.0))
+        _hsr.dc.wake_up_rigid_body(h)
+
+
 # disable showing lidar beam
 _lidar_path = '/hsrb/hsrb/base_range_sensor_link/Lidar'
 _lidar_prim = omni.usd.get_context().get_stage().GetPrimAtPath(_lidar_path)
@@ -801,6 +894,21 @@ while kit.is_running():
         # 漂流する (実際に発生)。1 ステップ分の制御エラーはログして続行する。
         import traceback
         traceback.print_exc()
+
+    # --- reset_world: サービス要求があれば物理ステップ間でここで適用する ---
+    if _reset_requested:
+        try:
+            _reset_objects()
+            _hsr.reset_to_spawn(
+                _robot_spawn['x'], _robot_spawn['y'], _robot_spawn['yaw'])
+            print('[reset_world] world + robot restored to spawn', flush=True)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+        finally:
+            _reset_requested = False
+            _reset_done.set()
+
     # --- [recol] 物体の collider を実行時に再登録(GUIの "Set Dynamic Collider (Convex Hull)"
     #     相当)。spawn時の body(YCBの ArticulationRoot 由来)はロボット(別アーティキュレーション)
     #     と衝突しないが、起動後に setRigidBody を再適用すると body が作り直されてロボットと

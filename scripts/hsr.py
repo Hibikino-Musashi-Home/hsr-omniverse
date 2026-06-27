@@ -1868,6 +1868,66 @@ class hsr:
         self._palm_body = None        # hand_palm_link の剛体ハンドル(キャッシュ)
         self._obj_paths_cache = None  # 物体(剛体)プリムのパス一覧(キャッシュ)
 
+    def reset_to_spawn(self, x, y, yaw):
+        """ロボットを spawn 姿勢 (x, y, yaw) + ホーム関節へ戻し、速度をゼロにする。
+
+        ArticulationView の pose API ではなく、本ファイルが一貫して使う dynamic
+        control (dc) で実装する (把持コードと同じ流儀)。art/_joints は初回 step()
+        で初期化されるため、それ以前に呼ばれたら何もしない。
+        """
+        if not getattr(self, 'art', None):
+            return
+
+        # --- base (articulation root) をテレポートして速度ゼロ ---
+        root = self.dc.get_articulation_root_body(self.art)
+        t = _dynamic_control.Transform()
+        t.p = (float(x), float(y), 0.0)
+        _half = 0.5 * float(yaw)
+        # dc の Transform.r は (x, y, z, w)。yaw (Z 軸) のみの回転。
+        t.r = (0.0, 0.0, math.sin(_half), math.cos(_half))
+        self.dc.set_rigid_body_pose(root, t)
+        self.dc.set_rigid_body_linear_velocity(root, (0.0, 0.0, 0.0))
+        self.dc.set_rigid_body_angular_velocity(root, (0.0, 0.0, 0.0))
+
+        # --- 全関節をホーム姿勢へ・速度ゼロ・目標も合わせる ---
+        home = getattr(self, '_home_dof_pos', {})
+        for _name, (_ptr, _jt, _inv) in self._joints.items():
+            _pos = home.get(_name, 0.0)
+            self.dc.set_dof_position(_ptr, _pos)
+            self.dc.set_dof_velocity(_ptr, 0.0)
+            self.dc.set_dof_position_target(_ptr, _pos)
+            self.dc.set_dof_velocity_target(_ptr, 0.0)
+
+        # --- アイドルブレーキ (stiffness=1e6 ラッチ) を必ず解除する ---
+        # 解除せず _base_braked だけ False にすると、次の動作指令時に stiffness
+        # 復元の分岐に入らず車輪が 1e6 のままロックされる (step() の brake ロジック)。
+        for _bptr in (getattr(self, 'left_wheel_ptr', None),
+                      getattr(self, 'right_wheel_ptr', None),
+                      getattr(self, 'roll_ptr', None)):
+            if _bptr is None:
+                continue
+            try:
+                _pr = self.dc.get_dof_properties(_bptr)
+                _pr.stiffness = 0.0
+                self.dc.set_dof_properties(_bptr, _pr)
+            except Exception:
+                pass
+        self._base_braked = False
+
+        self.dc.wake_up_articulation(self.art)
+
+        # --- オドメトリ・速度指令をリセット ---
+        self.odometry_estimator.set_pose(x, y, yaw)
+        self.cmd_vel_msg = None
+
+        # --- 把持中の物体があれば離す (衝突を戻し、追従を解除) ---
+        if getattr(self, '_grasp_obj', None) is not None:
+            try:
+                self._set_grasp_object_collision(self._grasp_obj['path'], True)
+            except Exception:
+                pass
+            self._grasp_obj = None
+
     def step(self):
         og.Controller.set(
             og.Controller.attribute(
@@ -1907,6 +1967,13 @@ class hsr:
             self.roll_ptr = self.dc.find_articulation_dof(
                 self.art, 'base_roll_joint')
             self.robots.initialize()
+            # reset_world 用: 起動直後の関節姿勢を「ホーム」として記録する。
+            # reset_to_spawn でこの姿勢へ戻す (未捕捉の関節は 0 にフォールバック)。
+            self._home_dof_pos = {
+                _n: self.dc.get_dof_state(
+                    _p[0], _dynamic_control.STATE_POS).pos
+                for _n, _p in self._joints.items()
+            }
 
         self.dc.wake_up_articulation(self.art)
 
