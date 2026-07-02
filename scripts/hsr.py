@@ -1718,6 +1718,20 @@ class hsr:
         right_wheel_drive.GetStiffnessAttr().Set(0)
         roll_drive.GetStiffnessAttr().Set(0)
 
+        # 駆動輪/ステアの最大トルク(maxForce)を上限で制限する。
+        # 既定(URDF 由来 ≈664 N·m)のままだと、台車が「速度指令」で前進中にドア等へ
+        # 突っかかって停止したとき、速度誤差でモーターが飽和して maxForce いっぱいの
+        # トルク(≒十数 kN の推進力)を軽い相手に毎ステップ注入し続け、相手の物理が
+        # 発散する(ドアにぶつかると すり抜け/破綻 していた主因)。平地走行に必要な
+        # トルクは <2 N·m 程度なので、100 N·m に制限しても通常の加減速・旋回には
+        # 十分すぎる余裕を残しつつ、突っかかり時の過大な力だけを断てる。
+        # ※ hsr.py は全タスク共通。急坂/段差乗り越えのように大トルクが要るタスクを
+        #   足すときは、この上限を見直すこと。
+        _BASE_WHEEL_MAX_FORCE = 100.0
+        left_wheel_drive.CreateMaxForceAttr(_BASE_WHEEL_MAX_FORCE)
+        right_wheel_drive.CreateMaxForceAttr(_BASE_WHEEL_MAX_FORCE)
+        roll_drive.CreateMaxForceAttr(_BASE_WHEEL_MAX_FORCE)
+
     def on_cmd_vel(self, msg):
         if self.simulation_context is not None:
             self.cmd_vel_msg = msg
@@ -1828,6 +1842,12 @@ class hsr:
                 _ps = str(_p.GetPath())
                 if _ps.startswith(_root):
                     continue  # ロボット自身は除く
+                if _ps.startswith('/World/Doors'):
+                    # ドア(枠/板/ノブ)はヒンジで連結された構造物。案Aのアタッチ把持は
+                    # 「物体を毎ステップ手へテレポート+衝突OFF」で持ち上げる仕組みで、
+                    # 連結拘束(ヒンジ)と競合して物理が破綻し、衝突OFFですり抜ける。
+                    # ドアは掴む対象にしない(押して開く/接触で操作する構造物)。
+                    continue
                 if _p.HasAPI(UsdPhysics.RigidBodyAPI):
                     paths.append(_ps)
         except Exception as _e:
@@ -1860,6 +1880,151 @@ class hsr:
                     _a.Set(bool(enabled))
         except Exception as _e:
             print('[graspA] collision toggle err %r' % _e, flush=True)
+
+    def _door_knob_grasp_update(self, hm, pp, pq, gc):
+        """ドアのレバーハンドル専用「リング握り」。
+
+        案A(アタッチ把持=毎ステップのテレポート)はドアには使えない(板/ノブはヒンジで
+        連結されており、テレポートが拘束と競合して物理が壊れる。実測)。代わりに、
+        グリッパがレバーの近くで閉じたら「手のひら↔ノブ」を実行時生成の関節でつなぐ:
+          - 並進: ノブ軸で X(ドア法線)/Z(上下) をロック、Y(レバーの棒方向)は ±6cm
+            スライド可。ノブはヒンジ中心の弧を描くため、握ったまま台車で押し引き
+            したときの弧とのズレをこのスライドが吸収する(人間が握ったまま手を
+            ハンドル上で滑らせるのと同じ)。ヘッドレステストで扉が手に追従して
+            52°まで開くことを実証済み。
+          - 回転: 3軸とも自由。レバーのひねりは指の接触で行う(関節は邪魔しない)。
+        グリッパを開くと関節を削除して離す。
+        """
+        CLOSE_T, OPEN_T, DIST = 0.5, 0.6, 0.10
+        _st = stage.get_current_stage()
+        # 「開いた状態から閉じる瞬間」を検出するために前フレームの開き量を覚えておく。
+        _hm_prev = getattr(self, '_door_hm_prev', None)
+        self._door_hm_prev = hm
+        # ノブ剛体とその子ジオメトリ(実際のレバーの棒など)のパスを一度だけ収集。
+        # ※距離判定は「子ジオメトリの実位置」で行う。ノブ剛体の原点は組み立ての
+        #   都合で扉の足元中央にあり、原点との距離では握れないため(実測)。
+        if getattr(self, '_door_knobs', None) is None:
+            self._door_knobs = []
+            self._door_grasp = None
+            _root = _st.GetPrimAtPath('/World/Doors')
+            if _root and _root.IsValid():
+                for _p in Usd.PrimRange(_root):
+                    _ps = str(_p.GetPath())
+                    if _ps.endswith('/knob') and _p.HasAPI(UsdPhysics.RigidBodyAPI):
+                        self._door_knobs.append({
+                            'path': _ps,
+                            'kids': [str(_c.GetPath()) for _c in _p.GetChildren()],
+                        })
+        if not self._door_knobs:
+            return
+
+        if self._door_grasp is None:
+            # ★エッジトリガ: 「開いた状態から閉じる瞬間」だけ握りを試す。
+            #   閉じたままのグリッパがレバーに近づいただけで勝手に握ると、
+            #   手から離れた軸上アンカーに拘束されて「何もない所に引っかかる」
+            #   ように見える(実測で発生)。意図した把持(開く→近づく→閉じる)のみ拾う。
+            if not (_hm_prev is not None and _hm_prev >= CLOSE_T and hm < CLOSE_T):
+                return
+            # 指先中点 gc に一番近い「レバーの棒」を探す(判定はレバーのみ。
+            # スピンドルは扉面に近く、そこで握るのは不自然な上に誤判定のもと)。
+            _best, _bestd = None, DIST
+            _xc = UsdGeom.XformCache()
+            for _k in self._door_knobs:
+                for _kid in _k['kids']:
+                    if '/lever_' not in _kid:
+                        continue
+                    _prim = _st.GetPrimAtPath(_kid)
+                    if not _prim or not _prim.IsValid():
+                        continue
+                    _t = _xc.GetLocalToWorldTransform(_prim).ExtractTranslation()
+                    _d = math.sqrt((gc[0] - _t[0]) ** 2 + (gc[1] - _t[1]) ** 2 +
+                                   (gc[2] - _t[2]) ** 2)
+                    if _d < _bestd:
+                        _bestd, _best = _d, _k
+            if _best is None:
+                return
+            _kh = self.dc.get_rigid_body(_best['path'])
+            if not _kh:
+                return
+            _kp = self.dc.get_rigid_body_pose(_kh)
+            _qk = (_kp.r.x, _kp.r.y, _kp.r.z, _kp.r.w)
+            # ★アンカー(拘束の基準点)は「レバーの回転軸上」(スピンドル中心=stem の中点)。
+            #   レバーの棒の上に置くと、ひねったときアンカー自体が弧を描いて動き、
+            #   硬い腕がそれに追従できず拘束が衝突→ドア枠(不動)相手にロボット側が
+            #   持ち上げられる(実測)。軸上の点はひねっても動かないので衝突しない。
+            _stems = [k for k in _best['kids'] if '/stem_' in k]
+            _ax_pts = []
+            for _sp in (_stems or _best['kids']):
+                _prm = _st.GetPrimAtPath(_sp)
+                if _prm and _prm.IsValid():
+                    _tt = _xc.GetLocalToWorldTransform(_prm).ExtractTranslation()
+                    _ax_pts.append((_tt[0], _tt[1], _tt[2]))
+            if not _ax_pts:
+                return
+            _aw = (sum(p[0] for p in _ax_pts) / len(_ax_pts),
+                   sum(p[1] for p in _ax_pts) / len(_ax_pts),
+                   sum(p[2] for p in _ax_pts) / len(_ax_pts))
+            # 関節フレーム = アンカー点に「ノブの軸向き」で置く。
+            # frame0=手のひらローカル, frame1=ノブローカル。両フレームの軸がノブ軸に
+            # そろうので、transY スライド = レバーの棒方向になる(手のひらの向きに依らない)。
+            _rel0 = _q_rot(_q_conj(pq),
+                           (_aw[0] - pp[0], _aw[1] - pp[1], _aw[2] - pp[2]))
+            _rot0 = _q_mul(_q_conj(pq), _qk)
+            _rel1 = _q_rot(_q_conj(_qk),
+                           (_aw[0] - _kp.p.x, _aw[1] - _kp.p.y, _aw[2] - _kp.p.z))
+            _jp = '/World/DoorGraspJoint'
+            _j = UsdPhysics.Joint.Define(_st, _jp)
+            _j.CreateBody0Rel().SetTargets(
+                [self.stage_path + self.prefix + '/hand_palm_link'])
+            _j.CreateBody1Rel().SetTargets([_best['path']])
+            _j.CreateLocalPos0Attr().Set(Gf.Vec3f(*_rel0))
+            _j.CreateLocalRot0Attr().Set(
+                Gf.Quatf(_rot0[3], _rot0[0], _rot0[1], _rot0[2]))
+            _j.CreateLocalPos1Attr().Set(Gf.Vec3f(*_rel1))
+            _j.CreateLocalRot1Attr().Set(Gf.Quatf(1.0))
+            for _ax in ('rotX', 'rotY', 'rotZ'):   # 回転3軸は自由 (low>high = free)
+                _la = UsdPhysics.LimitAPI.Apply(_j.GetPrim(), _ax)
+                _la.CreateLowAttr(1.0)
+                _la.CreateHighAttr(-1.0)
+            _la = UsdPhysics.LimitAPI.Apply(_j.GetPrim(), 'transY')
+            _la.CreateLowAttr(-0.06)               # レバーの棒方向スライド(±6cm)
+            _la.CreateHighAttr(0.06)
+            # ※破断しきい値(breakForce)は付けない: 解錠時のヒンジ再構築の瞬間的な
+            #   衝撃で誤破断し、握りが切れてしまう(実測)。「浮く」問題の根本原因は
+            #   軸上アンカーで解消済みで、異常時の解放は下の滑り検出が担う。
+            self._door_grasp = {'joint': _jp, 'knob': _best['path'],
+                                'kh': _kh, 'rel0': _rel0, 'rel1': _rel1}
+            print('[door-grasp] レバーを握った: %s (dist=%.3f)'
+                  % (_best['path'], _bestd), flush=True)
+        else:
+            _release_reason = None
+            if hm > OPEN_T:                        # グリッパが開いた → 離す
+                _release_reason = 'レバーを離した'
+            else:
+                # 滑り/破断の検出: 両アンカーのワールド位置が大きく離れていたら
+                # 握りが外れたとみなして解放する(壊れた拘束を残さない)。
+                try:
+                    _kp = self.dc.get_rigid_body_pose(self._door_grasp['kh'])
+                    _qk = (_kp.r.x, _kp.r.y, _kp.r.z, _kp.r.w)
+                    _a0 = _q_rot(pq, self._door_grasp['rel0'])
+                    _a0 = (pp[0] + _a0[0], pp[1] + _a0[1], pp[2] + _a0[2])
+                    _a1 = _q_rot(_qk, self._door_grasp['rel1'])
+                    _a1 = (_kp.p.x + _a1[0], _kp.p.y + _a1[1], _kp.p.z + _a1[2])
+                    _sep = math.sqrt((_a0[0] - _a1[0]) ** 2 +
+                                     (_a0[1] - _a1[1]) ** 2 +
+                                     (_a0[2] - _a1[2]) ** 2)
+                    if _sep > 0.20:
+                        _release_reason = '握りが滑って外れた'
+                except Exception:
+                    pass
+            if _release_reason is not None:
+                try:
+                    _st.RemovePrim(self._door_grasp['joint'])
+                except Exception:
+                    pass
+                print('[door-grasp] %s: %s'
+                      % (_release_reason, self._door_grasp['knob']), flush=True)
+                self._door_grasp = None
 
     def _grasp_attach_update(self):
         # 案A: 指の衝突が効かない問題を迂回して把持を再現する。
@@ -1894,6 +2059,16 @@ class hsr:
         _rf = self.dc.get_rigid_body_pose(self._rfinger_body).p
         _gc = ((_lf.x + _rf.x) / 2.0, (_lf.y + _rf.y) /
                2.0, (_lf.z + _rf.z) / 2.0)
+
+        # ドアのレバーハンドルは案A(アタッチ把持)の対象外(ヒンジと競合して物理が
+        # 壊れるため除外済み)。代わりに専用の「リング握り」で扱う。
+        try:
+            self._door_knob_grasp_update(_hm, _pp, _pq, _gc)
+        except Exception as _e:
+            # 持続的なエラーでも毎フレーム(60Hz)ログを吐かないよう初回のみ出す。
+            if not getattr(self, '_door_grasp_err_logged', False):
+                self._door_grasp_err_logged = True
+                print('[door-grasp] err %r (以後この警告は抑制)' % _e, flush=True)
 
         CLOSE_T, OPEN_T, GRASP_DIST = 0.5, 0.6, 0.15
         if self._grasp_obj is None:
@@ -1971,10 +2146,30 @@ class hsr:
         self._palm_body = None  # hand_palm_link の剛体ハンドル(キャッシュ)
         self._obj_paths_cache = None  # 物体(剛体)プリムのパス一覧(キャッシュ)
 
+    def release_door_grasp(self):
+        """ドアのリング握りを強制解放する (reset_world 用)。
+
+        握り関節が残ったままロボットをスポーンへテレポートすると、手とノブが
+        数 m 引き離された巨大な拘束違反になり、次の物理ステップで爆発的な補正が
+        入って物理が壊れる。テレポート前に必ず外すこと。
+        """
+        _dg = getattr(self, '_door_grasp', None)
+        if not _dg:
+            return
+        try:
+            stage.get_current_stage().RemovePrim(_dg['joint'])
+        except Exception:
+            pass
+        print('[door-grasp] reset により解放: %s' % _dg['knob'], flush=True)
+        self._door_grasp = None
+
     def reset_to_spawn(self, x, y, yaw):
         """ロボットを spawn 姿勢 (x, y, yaw) + ホーム関節へ戻し,速度をゼロに"""
         if not getattr(self, 'art', None):
             return
+
+        # ドアのリング握りが残っているとテレポートで拘束が爆発するため先に外す。
+        self.release_door_grasp()
 
         # --- base (articulation root) をテレポートして速度ゼロ ---
         root = self.dc.get_articulation_root_body(self.art)
@@ -2134,6 +2329,35 @@ class hsr:
                 self.odometry_estimator.pose.y = _roy + _relx * _os + _rely * _oc
                 self.odometry_estimator.pose.ang = math.atan2(
                     math.sin(_royaw + _relyaw), math.cos(_royaw + _relyaw))
+                # [基準測定] 軌道追従(把持)中の base_footprint 実姿勢と、パームの base 基準
+                # 位置をログ。台車の振れ幅(x/y/yaw)・上下ガクガク(z)と、狙い(front(x,y,z))に対する
+                # 到達ズレを定量化する。_BASE_WOBBLE_LOG=False で止められる。
+                if getattr(self, '_BASE_WOBBLE_LOG', True) \
+                        and self.odom_trajectory_action_server._action_goal is not None:
+                    _bwn = getattr(self, '_bw_n', 0) + 1
+                    self._bw_n = _bwn
+                    if _bwn % 8 == 0:
+                        try:
+                            if getattr(self, '_palm_log_body', None) is None:
+                                self._palm_log_body = self.dc.get_rigid_body(
+                                    self.stage_path + self.prefix + '/hand_palm_link')
+                            _pp = self.dc.get_rigid_body_pose(self._palm_log_body).p
+                            _pdx, _pdy = _pp.x - _wx, _pp.y - _wy
+                            _pc, _ps = math.cos(_wyaw), math.sin(_wyaw)
+                            _pbx = _pdx * _pc + _pdy * _ps
+                            _pby = -_pdx * _ps + _pdy * _pc
+                            # 軌道が指令している台車の向き目標(=プランナが望む yaw)。
+                            # 実 yaw とほぼ一致=プランナが回している。指令≈一定なのに実 yaw が
+                            # 回る=制御が指令外で回している(操舵巻き上がり系のSim側バグ)。
+                            _cmdt = self.odom_trajectory_action_server._joints.get(
+                                'odom_t', float('nan'))
+                            print('[basewobble] base(x=%.4f y=%.4f yaw=%.2f z=%.4f)'
+                                  ' cmd_yaw=%.2f palm(fwd=%.3f left=%.3f z=%.3f)' % (
+                                      _wx, _wy, math.degrees(_wyaw), float(_gp.p.z),
+                                      math.degrees(_cmdt),
+                                      _pbx, _pby, float(_pp.z)), flush=True)
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
@@ -2393,15 +2617,23 @@ class hsr:
                 self.right_wheel_ptr, jcmd.vel_wheel_r)
             self.dc.set_dof_velocity_target(self.roll_ptr, jcmd.vel_steer)
 
-        force_readings = self.robots.get_measured_joint_forces(
-            joint_indices=[
-                self.robots._metadata.joint_indices['wrist_ft_sensor_frame_joint'] + 1]
-        )
-        # 物理ビュー/FTセンサが未準備のフレームでは None が返ることがある(特に world
-        # 差し替え/reset 直後)。そのまま force_readings[0]... を実行すると毎フレーム
-        # TypeError で step() 全体が落ち、以降の action server(腕/台車/グリッパの軌道実行)が
-        # 一切動かず把持が進まない。ゼロ読みでフォールバックして step() を継続させる
-        # (センサ復帰後は実値に戻る)。
+        # 物理ビュー/FTセンサが未準備・無効化されたフレームでは None が返る、または
+        # AttributeError('_physics_view') 等の例外を投げることがある(world 差し替え/
+        # reset 直後や、関節プリムの実行時変更で PhysX が再パースした直後)。
+        # そのまま落とすと毎フレーム step() 全体が死に、以降の action server
+        # (腕/台車/グリッパの軌道実行)が一切動かなくなる(=腕が操作不能。実際に発生)。
+        # ゼロ読みでフォールバックして step() を継続させる(復帰後は実値に戻る)。
+        try:
+            force_readings = self.robots.get_measured_joint_forces(
+                joint_indices=[
+                    self.robots._metadata.joint_indices['wrist_ft_sensor_frame_joint'] + 1]
+            )
+        except Exception as _ft_ex:
+            force_readings = None
+            if not getattr(self, '_ft_err_warned', False):
+                self._ft_err_warned = True
+                print('[hsr] get_measured_joint_forces 例外 %r; FT/wrench をゼロで代用'
+                      ' (以後この警告は抑制)' % _ft_ex, flush=True)
         ft_valid = force_readings is not None
         if not ft_valid:
             force_readings = [[[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]]

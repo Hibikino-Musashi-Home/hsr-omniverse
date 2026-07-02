@@ -1,0 +1,23 @@
+# ============================================================
+# ドア開閉テスト用タスク (door_test)
+# ============================================================
+# make ros2 up TASK=door_test で使う。
+# 目的: 「ドアノブを掴んでドアを開ける」動作を試すための最小シーン。
+#       部屋の家具・壁を一切置かず、広い床の上にドア 1 枚だけを立てる
+#       (「ドアがあるだけの環境」)。gpsr の設定は汚さない (専用 config として分離)。
+#
+# ドアの配置・大きさ・ヒンジ側などは同フォルダの placement.yaml の doors: で指定。
+
+# このタスクで使う world (worlds/ 内のファイル名)。
+# door_test.world は rc26_restaurant.world から四方の壁 (wall_north/south/east/west)
+# を取り除いた専用 world。壁も家具も無い、床の当たり判定だけの空間になる。
+# (rc26_restaurant.world は odom_test 等でも使われているが、実は物理壁 4 枚を含むため
+#  「ドアだけの環境」にはならない。door_test はドア以外の物理オブジェクトを持たない
+#  こちらを使う。)
+world: door_test.world
+
+# 見た目 (configs/dressing.yaml のプリセットから選ぶ)。
+# floor_only = 床のみ・壁/背景なしの広い開けた空間 (odom_test と同じ)。
+dressing:
+  preset: floor_only
+  lighting: bright

@@ -62,6 +62,9 @@ services:
       - ROBOT=${ROBOT:-}
       - CYCLONEDDS_URI=${CYCLONEDDS_URI:-file:///cyclonedds.xml}
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      # ドアのラッチ連動の診断ログ (既定 OFF)。`DOOR_LATCH_DEBUG=1 make ros2 up TASK=door_test`
+      # で有効化すると、レバー角/扉角/作動状態が 0.5 秒ごとに出る (原因切り分け用)。
+      - DOOR_LATCH_DEBUG=${DOOR_LATCH_DEBUG:-}
     volumes:
       - ../assets/cyclonedds.pc.xml:/cyclonedds.pc.xml:ro
       - ../scripts/launch_isaacsim.py:/app/launch_isaacsim.py:ro
@@ -72,6 +75,7 @@ services:
       - ../scripts/object_placement.py:/app/object_placement.py:ro
       - ../scripts/people_spawn.py:/app/people_spawn.py:ro
       - ../scripts/furniture_spawn.py:/app/furniture_spawn.py:ro
+      - ../scripts/door_spawn.py:/app/door_spawn.py:ro
       # 部屋の見た目(dressing)を編集中なので live マウントする。これらは未マウントだと
       # イメージ内の古い焼き込み版が動き、configs/dressing.yaml の新キー(wall_color 等)と
       # 食い違ってクラッシュする。マウントしておけばホストの編集が再ビルド無しで反映される。

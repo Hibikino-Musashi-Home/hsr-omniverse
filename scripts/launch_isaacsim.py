@@ -63,6 +63,16 @@ import construct_environment
 import furniture_spawn
 import hsr
 import people_spawn
+# door_spawn はドアタスク専用の追加モジュール。まだ git 未追跡なので、この launcher
+# だけが存在して door_spawn.py が無い環境 (変更の add 漏れ・部分チェックアウト等) でも
+# 起動が丸ごと死なないよう、import は「任意」扱いにする。無ければドアを置かないだけで
+# 従来タスクには一切影響しない (spawn_doors 呼び出しも下でガードする)。
+try:
+    import door_spawn
+except ImportError as _door_import_ex:
+    door_spawn = None
+    print(f'[door] door_spawn 未検出 ({_door_import_ex!r}); ドアはスキップします',
+          flush=True)
 # isort: on
 
 
@@ -552,6 +562,20 @@ _num_people, _people_loop_start, _people_loop_end = people_spawn.spawn_people(
 furniture_spawn.spawn_furniture(
     assets_root_path, kit, config_path=_task_placement_path)
 
+# placement.yaml の doors: セクションに従って「ドアノブ付きのドア」を配置する。
+# 枠(キネマティック剛体=動かない) にヒンジ(回転関節)でドア板(剛体)が付き、ドア板に丸ノブ(回転関節+剛体)が付く。
+# doors: が無いタスクでは何も置かない no-op。初期姿勢を _spawn_initial_states に渡すと、
+# reset_world (_reset_objects) でドアが閉状態へ戻る。
+# door_spawn が無い環境 (上の import 失敗) では _num_doors=0 として素通りする。
+# door_handles には「レバーをひねる→扉が開き始める」連動コントローラ用の記述子が入る。
+_door_handles = []
+if door_spawn is not None:
+    _num_doors = door_spawn.spawn_doors(
+        assets_root_path, kit, config_path=_task_placement_path,
+        initial_states=_spawn_initial_states, door_handles=_door_handles)
+else:
+    _num_doors = 0
+
 # 独自オブジェクト (usd/my_models) の配置は使わない。
 # 配置は configs/placement.yaml の ycb のみ。戻したいときは下を有効化:
 # # アルボナース
@@ -709,6 +733,32 @@ simulation_context = SimulationContext(stage_units_in_meters=1.0)
 kit.set_setting('/physics/updateToUsd', True)
 kit.update()
 _hsr.onsimulationstart(simulation_context)
+
+# ドアを置いたタスクだけ、シーン側の CCD (連続衝突判定) を有効にする。
+# なぜここか: door_spawn の各剛体には enableCCD を付けてあるが、PhysX は「シーン側の
+# CCD が有効」でないと剛体側の指定を無視する。CCD が無いと薄いドア板/レバーをロボットが
+# 速く動かした時にすり抜けやめり込みが起きうる。
+# ★重要: initialize_physics() の「前」に行うこと。生成後に USD へ enableCCD を書いても、
+#   既に生成済みの PhysX シーンには反映されない(ホット適用されない)ため。PhysicsContext
+#   API (enable_ccd) なら初期化前に設定でき、生成されるシーンに確実に焼き込まれる。
+# ドアが無いタスク(_num_doors==0)では従来どおり何もしない(全タスク共通の挙動は不変)。
+if _num_doors > 0:
+    try:
+        _phys_ctx = simulation_context.get_physics_context()
+        _phys_ctx.enable_ccd(True)
+        print(f'[door] scene CCD enabled (is_ccd_enabled='
+              f'{_phys_ctx.is_ccd_enabled()})', flush=True)
+    except Exception as _ccd_ex:
+        # API が無い等のときは USD へ直接書くフォールバック(効かない可能性はあるが壊さない)。
+        print(f'[door] physics_context CCD enable failed: {_ccd_ex!r}; USD フォールバック',
+              flush=True)
+        try:
+            for _scene_prim in omni.usd.get_context().get_stage().Traverse():
+                if _scene_prim.IsA(UsdPhysics.Scene):
+                    PhysxSchema.PhysxSceneAPI.Apply(_scene_prim).CreateEnableCCDAttr(True)
+        except Exception as _ccd_ex2:
+            print(f'[door] USD CCD フォールバックも失敗: {_ccd_ex2!r}', flush=True)
+
 simulation_context.initialize_physics()
 omni.timeline.get_timeline_interface().play()
 
@@ -838,6 +888,19 @@ if is_ros2:
         handle_reset_world_ros2,
         qos_profile=rclpy.qos.qos_profile_services_default,
     )
+
+    # トピック版のリセット: メッセージを 1 回 publish するだけで環境をリセットできる。
+    #   ros2 topic pub --once /isaac/reset_world std_msgs/msg/Empty "{}"
+    # (上のサービス版と同じ処理。トピックの方が CLI やスキルから手軽に叩ける。)
+    # コールバックではフラグを立てるだけにし、実際のリセットはメインループが
+    # 物理ステップの合間に適用する (サービス版と同じ経路 = 安全)。
+    def _on_reset_world_msg(_msg):
+        global _reset_requested
+        _reset_requested = True
+        print('[reset_world] トピック要求を受信 → 次ステップでリセット', flush=True)
+
+    _hsr.ros2node.create_subscription(
+        EmptyMsg, '/isaac/reset_world', _on_reset_world_msg, 1)
 else:
 
     def handle_get_world_properties(req):
@@ -952,6 +1015,18 @@ if _lidar_prim.IsValid():
         _draw_attr.Set(False)
         print(f'[sample-ros] disable showing lidar beam: {_lidar_path}')
 
+# ドアの「レバーをひねる→扉が開き始める」連動コントローラを 1 度だけ用意する。
+# ここで _hsr(=_hsr.dc) は有効、play() 済み。生成時に物理呼び出しは無い(ハンドルは遅延解決)。
+# ドアが無いタスクでは作らない(全タスク共通の挙動は不変)。
+_door_ctrl = None
+if _num_doors > 0 and _door_handles and door_spawn is not None:
+    try:
+        _door_ctrl = door_spawn.DoorLatchController(_hsr.dc, _door_handles)
+        print(f'[door] latch controller armed for {len(_door_handles)} door(s)',
+              flush=True)
+    except Exception as _e:
+        print(f'[door] latch controller init failed: {_e!r}', flush=True)
+
 while kit.is_running():
     # Run with a fixed step size
     if _num_people > 0:
@@ -975,10 +1050,21 @@ while kit.is_running():
 
         traceback.print_exc()
 
+    # ドアのラッチ連動を毎フレーム更新(レバーをひねっていれば扉に開き速度を与える)。
+    # 例外がループを殺さないよう包む(_hsr.step と同じ方針)。
+    if _door_ctrl is not None:
+        try:
+            _door_ctrl.step()
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
     # --- reset_world: サービス要求があれば物理ステップ間でここで適用する ---
     if _reset_requested:
         try:
             _reset_objects()
+            if _door_ctrl is not None:
+                _door_ctrl.notify_reset()  # 閉じ直後に POP が誤爆しないよう released を消す
             _hsr.reset_to_spawn(
                 _robot_spawn['x'], _robot_spawn['y'], _robot_spawn['yaw'])
             print('[reset_world] world + robot restored to spawn', flush=True)
