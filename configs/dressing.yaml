@@ -6,7 +6,7 @@
 # リリース後はこのファイルだけ編集すれば設定変更が反映される
 # (コードを触る必要はない)。
 #
-# 編集後の反映: `make ros2 down && make ros2 up`
+# 編集後の反映: `make down && make up`
 #
 # 数値の書式について:
 #   PyYAML (YAML 1.1) では "6e5" のような指数表記が文字列扱いされる
@@ -19,8 +19,8 @@
 # ときに使われる名前。下の presets / lighting のキーを指す。
 
 defaults:
-  preset: lab        # dressing_presets のどれを使うか
-  lighting: default  # lighting_presets のどれを使うか
+  preset: rc26_venue  # dressing_presets のどれを使うか (会場風: 白壁 + 木目床)
+  lighting: default   # lighting_presets のどれを使うか
 
 
 # ============================================================
@@ -63,25 +63,15 @@ dressing_presets:
     floor_texture: /data/textures/floor.jpg
     backdrop_textures: null
 
-  # レストラン風 (木目の床 + 暖色の塗り壁・天井なしの広い空間)。restaurant タスクで使用。
-  restaurant:
-    floor_texture: /data/textures/restaurant_floor.jpg   # 木製フローリング (Polyhaven, CC0)
-    backdrop_textures: null
-    floor_tile: 5.33   # 約15m四方の床に対し ~2.8m/タイル (テクスチャを縦横1.5倍に拡大)
-    # 物理壁 (world の /wall_*) を暖色の塗り壁色に。暖かいベージュ (R,G,B 各0〜1)。
-    wall_color: [0.85, 0.73, 0.55]
-
-  # RoboCup 2026 会場の実写写真から抽出した床 + 白壁。restaurant タスクで使用。
+  # 競技会場風の床 + 白壁。既定プリセット。
   #   floor_texture: 会場の木目フローリングを抽出 → 木目を水平化 → 継ぎ目なしタイル化。
   #   wall_color:    会場の白壁色 (実写は照明で暗めに写るが白寄りに補正した値)。
   rc26_venue:
     floor_texture: /data/textures/rc26_venue_floor.jpg
-    backdrop_textures: null   # 周囲に壁は足さない (壁は world の map_box_* がそのまま)
-    floor_tile: 5.33   # restaurant と同じ縮尺から開始 (板が大き/小さすぎれば調整)
-    # rc26_from_map.world の占有地図由来の壁/障害物 (/map_box_*) は既定で灰色。
-    # それを会場の白壁色 (実写から抽出) に塗る。restaurant など他プリセットは
-    # このキーを持たないので灰色のまま (影響しない)。
-    map_box_color: [0.90, 0.89, 0.85]
+    backdrop_textures: null   # 周囲に背景幕は足さない (壁は world の wall_* がそのまま)
+    floor_tile: 5.33   # 床テクスチャの縮尺 (板が大き/小さすぎれば調整)
+    # carrobo.world の壁 (/wall_*) は既定で灰色。それを会場の白壁色に塗る。
+    wall_color: [0.90, 0.89, 0.85]
 
   # 背景のみ (床なし)
   backdrop_only:
@@ -132,7 +122,7 @@ lighting_presets:
     ceiling_color_temp: 6500.0        # 昼白色
     default_lights_intensity: 50000.0 # 5e4 (launch_isaacsim.py の既存値)
 
-  # より明るい (撮影用など)。restaurant 専用。少しだけ抑えた値 (元の約75%)。
+  # より明るい (撮影用など)。
   bright:
     dome_intensity: 7500.0
     ceiling_intensity: 450000.0       # 4.5e5 (default の 3 倍)

@@ -7,9 +7,8 @@
 
 | ファイル | 用途 |
 |---|---|
-| [`placement.yaml`](./placement.yaml) | シーン初期配置 (`robot` ロボット位置 / `objects` 物体配置 / `people` 人の配置) を 1 つにまとめた設定 (共通の既定) |
-| [`dressing.yaml`](./dressing.yaml) | シーン演出 (床テクスチャ + 周囲背景画像 + 照明) のプリセット定義 (共通ライブラリ) |
-| [`tasks/`](./tasks/) | RoboCup の**タスク別**設定 (world / placement / dressing を切り替え)。`make ros2 up TASK=<名前>` で選ぶ。詳細は [`tasks/README.md`](./tasks/README.md) |
+| [`placement.yaml`](./placement.yaml) | シーン初期配置 (`robot` ロボット位置 / `objects` YCB物体配置) をまとめた設定 |
+| [`dressing.yaml`](./dressing.yaml) | シーン演出 (床テクスチャ + 周囲背景画像 + 照明) のプリセット定義 |
 
 ## クイックスタート
 
@@ -17,11 +16,8 @@
 
 | やりたいこと | 編集場所 |
 |---|---|
-| タスクごとに world/配置/見た目を切り替える | [`tasks/<名前>/`](./tasks/) を用意し、`make ros2 up TASK=<名前>` で実行 |
 | ロボットの初期位置を変える | [`placement.yaml`](./placement.yaml) の **`robot:`** (x, y, yaw[rad]) |
 | 家具の上に物体を置く | `placement.yaml` の **`objects.placements:`** |
-| 本物の机・椅子 (USD) を置く | `placement.yaml` の **`furniture:`** (例: `tasks/restaurant/placement.yaml`) |
-| 人 (アニメ付き) を置く | `placement.yaml` の **`people.list:`** |
 | 部屋の見た目をプリセットごと切り替える (例: lab → office) | [`dressing.yaml`](./dressing.yaml) の **`defaults.preset:`** |
 | 照明モードを切り替える (例: default → bright) | `dressing.yaml` の **`defaults.lighting:`** |
 | 既存プリセットの値を微調整 (例: 天井灯を強くする) | `dressing.yaml` の **`lighting_presets.<name>:`** や **`dressing_presets.<name>:`** の中の数値 |
@@ -32,8 +28,8 @@
 ### 編集後の反映方法
 
 ```bash
-make ros2 down
-make ros2 up
+make down
+make up
 ```
 
 `down` を先にやるのが大事(`up` だけだと既存コンテナが残っていて Python プロセスが再起動されず、YAML の変更が反映されないことがある)。
@@ -113,7 +109,7 @@ lighting_presets:
     ...
 ```
 
-保存 → `make ros2 down && make ros2 up`。
+保存 → `make down && make up`。
 
 ### B. プリセットを切り替える
 
@@ -127,7 +123,7 @@ defaults:
   lighting: studio    # ← 切り替える
 ```
 
-保存 → `make ros2 down && make ros2 up`。
+保存 → `make down && make up`。
 
 ### C. 新しいテクスチャセットを追加
 
@@ -141,7 +137,7 @@ defaults:
    └── office_w.jpg
    ```
 
-2. `env_docker/docker-compose-ros2.yml` (および `docker-compose.yml`) の `isaacsim:` サービスの `volumes:` に追加:
+2. `env_docker/docker-compose.yml` の `isaacsim:` サービスの `volumes:` に追加:
    ```yaml
    - ${HOME}/datasets/OfficeTextures:/data/OfficeTextures:ro
    ```
@@ -164,7 +160,7 @@ defaults:
      preset: office     # ← lab → office
    ```
 
-5. `make ros2 down && make ros2 up`
+5. `make down && make up`
 
 ### D. 新しい照明モードを追加
 
@@ -184,7 +180,7 @@ lighting_presets:
 
 ### E. プリセット間で違いを見比べたい
 
-`defaults.lighting:` を `dim` ↔ `bright` ↔ `studio` の順に変えて、`make ros2 down && make ros2 up` を 3 回繰り返せばどう変わるか比較できる。
+`defaults.lighting:` を `dim` ↔ `bright` ↔ `studio` の順に変えて、`make down && make up` を 3 回繰り返せばどう変わるか比較できる。
 
 ## 注意事項
 
@@ -235,8 +231,8 @@ bind mount でホストの YAML 編集は即時にコンテナから見えるが
 したがって YAML を編集しただけでは反映されず、コンテナ(= Python プロセス)を再起動する必要がある:
 
 ```bash
-make ros2 down
-make ros2 up
+make down
+make up
 ```
 
 ### ⚠️ テクスチャパスはコンテナ内パス
@@ -251,17 +247,17 @@ make ros2 up
 
 | 名前 | 説明 |
 |---|---|
+| `rc26_venue` | 会場風(白壁 + 木目床)。**既定プリセット** |
 | `lab` | ラボ風(`/data/textures/` 配下の floor, wall_1〜4) |
 | `floor_only` | 床のみ、背景なし |
 | `backdrop_only` | 背景のみ、床なし |
-| `restaurant` | レストラン風(木目の床 `restaurant_floor.jpg`・背景なし・広い空間)。restaurant タスク用 |
 
 ### `lighting_presets` (照明)
 
 | 名前 | 強度感 | 用途例 |
 |---|---|---|
 | `default` | 標準 | 一般的な作業 |
-| `bright` | default の 約3倍 | restaurant 専用 (明るめ) |
+| `bright` | default の 約3倍 | 撮影・スクリーンショット用 (明るめ) |
 | `studio` | default の 10 倍 | スタジオ級・オーバー気味 |
 | `dim` | default の 1/10 | 夜の部屋 |
 | `warm` | default + 電球色 | 暖色系の屋内 |

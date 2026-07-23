@@ -77,6 +77,29 @@ def load_config(path: str) -> Dict[str, Any]:
 _TIER_RE = re.compile(r"^(.+)_(\d+)$")
 
 
+# ============================================================
+# 既知の USD 家具モデルの「置ける面」の定義
+# ============================================================
+# unit_box の家具は world の scale から天板を計算できるが、本物の USD モデル
+# (wrc_* など) は形状が world に書かれていない。そこで、モデルごとの
+# 「物を置ける面の高さ (モデル原点からの z, 低い順)」をここに定義しておく。
+# 値は本家 Gazebo モデル (tmc_wrs_gazebo_worlds/models/*/model.sdf) の
+# 衝突ボックスの天面から取った実寸。
+#
+#   tops : 各段の天面の高さ [m] (モデル原点=床基準)。並び順が tier 番号になる。
+#   size : 水平方向のおおよその footprint (x, y) [m]。部屋の外周計算に使う。
+KNOWN_MODEL_SURFACES: Dict[str, Dict[str, Any]] = {
+    # 本棚: 板の天面。tier 0=一番下の棚, 4=一番上 (高さ2.02mでHSRには高すぎ注意)
+    "wrc_bookshelf": {"tops": [0.06, 0.50, 0.80, 1.05, 2.02], "size": (0.80, 0.28)},
+    # 長机: 天板 1 枚 (1.2 x 0.4 m)
+    "wrc_long_table": {"tops": [0.40], "size": (1.20, 0.40)},
+    # 高い机: 天板 1 枚 (0.4 x 0.4 m)
+    "wrc_tall_table": {"tops": [0.60], "size": (0.40, 0.40)},
+    # 部屋の壁 (置く対象ではないが、部屋の外周計算に使う)
+    "wrc_frame": {"tops": [], "size": (6.1, 4.2)},
+}
+
+
 def read_furniture(world_file: str) -> Dict[str, Dict[str, Any]]:
     """world ファイルの <include> から家具を読み、
 
@@ -88,23 +111,39 @@ def read_furniture(world_file: str) -> Dict[str, Dict[str, Any]]:
     同じ頭の名前 (例: cabinet_0..3) で、かつ同じ位置 (x, y) に積み重なっている箱は
     1 つの多段家具 "cabinet" としてまとめる。位置がバラバラなもの (壁など) は
     段とはみなさず、それぞれフルネームで 1 段だけの家具として登録する。
-    scale を持たない include (= 通常の model.usd 家具) はスキップする。
+
+    scale を持たない include (= 本物の model.usd 家具) は、モデル名が
+    KNOWN_MODEL_SURFACES にあればその定義の tops を使って登録する
+    (include の名前がそのまま家具名になる)。無ければスキップ。
     """
     tree = ET.parse(world_file)
     root = tree.getroot()
 
-    # --- まず world 内の箱を全部読む ---
+    # --- まず world 内の箱を全部読む (USD 家具は known_usd に別で集める) ---
     boxes: List[Dict[str, Any]] = []
+    known_usd: Dict[str, Dict[str, Any]] = {}
     for inc in root.findall("world/include"):
         name_tag = inc.find("name")
         pose_tag = inc.find("pose")
         scale_tag = inc.find("scale")
-        if name_tag is None or pose_tag is None or scale_tag is None:
+        uri_tag = inc.find("uri")
+        if name_tag is None or pose_tag is None:
             continue
         pose = [float(n) for n in pose_tag.text.split()]
-        scale = [float(n) for n in scale_tag.text.split()]
         x, y, z = pose[0], pose[1], pose[2]
         yaw = pose[5]              # pose は x y z roll pitch yaw
+        if scale_tag is None:
+            # 本物の USD 家具: 既知モデルなら定義済みの棚板高さで登録する。
+            uri = (uri_tag.text if uri_tag is not None else "").replace("model://", "")
+            spec = KNOWN_MODEL_SURFACES.get(uri)
+            if spec and spec["tops"]:
+                known_usd[name_tag.text] = {
+                    "x": x, "y": y, "yaw": yaw,
+                    # include の z (通常 0) を足して world 座標の天面にする
+                    "tops": [z + t for t in spec["tops"]],
+                }
+            continue
+        scale = [float(n) for n in scale_tag.text.split()]
         top = z + scale[2] / 2.0  # この箱の天面 (= 段の置ける面)
         boxes.append({"name": name_tag.text, "x": x, "y": y, "yaw": yaw, "top": top})
 
@@ -135,16 +174,21 @@ def read_furniture(world_file: str) -> Dict[str, Dict[str, Any]]:
                     "x": b["x"], "y": b["y"], "yaw": b["yaw"],
                     "tops": [b["top"]],
                 }
+
+    # --- 本物の USD 家具 (KNOWN_MODEL_SURFACES 定義) を追加登録 ---
+    # include の名前 (例: wrc_bookshelf, wrc_long_table_0) がそのまま家具名。
+    furniture.update(known_usd)
     return furniture
 
 
 def world_xy_bounds(world_file: str):
-    """world 内の全 unit_box の XY 外周を返す。
+    """world 内の家具・壁の XY 外周を返す。
 
         (min_x, max_x, min_y, max_y)
 
-    各箱の回転 (yaw) を考慮して四隅から算出する。箱が 1 つも無ければ None。
-    床・背景幕を world (家具・壁の広がり) に合わせるためのサイズ/中心の算出に使う。
+    unit_box は scale から、本物の USD 家具は KNOWN_MODEL_SURFACES の
+    footprint (size) から、各々回転 (yaw) を考慮した四隅で算出する。
+    何も無ければ None。床・背景幕のサイズ/中心の算出に使う。
     """
     tree = ET.parse(world_file)
     root = tree.getroot()
@@ -153,12 +197,21 @@ def world_xy_bounds(world_file: str):
     for inc in root.findall("world/include"):
         pose_tag = inc.find("pose")
         scale_tag = inc.find("scale")
-        if pose_tag is None or scale_tag is None:
+        uri_tag = inc.find("uri")
+        if pose_tag is None:
             continue
         pose = [float(n) for n in pose_tag.text.split()]
-        scale = [float(n) for n in scale_tag.text.split()]
         x, y, yaw = pose[0], pose[1], pose[5]
-        sx, sy = scale[0], scale[1]
+        if scale_tag is not None:
+            scale = [float(n) for n in scale_tag.text.split()]
+            sx, sy = scale[0], scale[1]
+        else:
+            # USD 家具: 既知モデルなら footprint を使う
+            uri = (uri_tag.text if uri_tag is not None else "").replace("model://", "")
+            spec = KNOWN_MODEL_SURFACES.get(uri)
+            if spec is None:
+                continue
+            sx, sy = spec["size"]
         for dx in (-sx / 2.0, sx / 2.0):
             for dy in (-sy / 2.0, sy / 2.0):
                 xs.append(x + dx * math.cos(yaw) - dy * math.sin(yaw))

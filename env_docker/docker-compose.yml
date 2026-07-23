@@ -1,12 +1,11 @@
 # Copyright (c) 2023, Toyota Motor Corporation
 # Copyright (c) 2023, MID Academic Promotions, Inc.
 # All rights reserved.
-version: "2.3"
 services:
-  ros-noetic:
+  ros2:
     build:
       context: ..
-      dockerfile: env_docker/Dockerfile.ros
+      dockerfile: env_docker/Dockerfile.ros2
     ipc: host
     network_mode: host
     deploy:
@@ -18,6 +17,10 @@ services:
       - DISPLAY
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=graphics
+      - CYCLONEDDS_URI=${CYCLONEDDS_URI:-file:///cyclonedds.xml}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+    volumes:
+      - ../launch/hsr.launch.py:/hsr.launch.py:ro
     security_opt:
       - seccomp:unconfined
   cacheproxy:
@@ -28,7 +31,7 @@ services:
   isaacsim:
     build:
       context: ..
-      dockerfile: env_docker/Dockerfile.isaacsim
+      dockerfile: env_docker/Dockerfile.isaacsim-ros2
     ipc: host
     network_mode: host
     security_opt:
@@ -45,34 +48,50 @@ services:
       - ACCEPT_EULA=Y
       - http_proxy=http://127.0.0.1:3128
       - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
-      - HSR_ROS_VERSION=1
+      - HSR_ROS_VERSION=2
+      # 競技モード: `make up TIME=600` で競技時間 (秒) が渡る。空なら通常モード。
+      - TASK_TIME=${TASK_TIME:-}
+      - CYCLONEDDS_URI=${CYCLONEDDS_URI:-file:///cyclonedds.xml}
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
     volumes:
+      - ../scripts/launch_isaacsim.py:/app/launch_isaacsim.py:ro
+      - ../scripts/hsr.py:/app/hsr.py:ro
+      - ../scripts/arena_cameras.py:/app/arena_cameras.py:ro
+      # 競技モードの録画出力先 (ホストの recordings/ にそのまま出る)
+      - ../recordings:/recordings:rw
+      # ros2_bridge.py も live マウント (gripper preempt 修正等を再ビルド無しで反映)
+      - ../scripts/ros2_bridge.py:/app/ros2_bridge.py:ro
+      - ../scripts/object_placement.py:/app/object_placement.py:ro
+      - ../scripts/people_spawn.py:/app/people_spawn.py:ro
+      - ../scripts/furniture_spawn.py:/app/furniture_spawn.py:ro
+      # 部屋の見た目(dressing)を編集中なので live マウントする。これらは未マウントだと
+      # イメージ内の古い焼き込み版が動き、configs/dressing.yaml の新キー(wall_color 等)と
+      # 食い違ってクラッシュする。マウントしておけばホストの編集が再ビルド無しで反映される。
+      - ../scripts/construct_environment.py:/app/construct_environment.py:ro
+      - ../scripts/dressing_presets.py:/app/dressing_presets.py:ro
+      - ../scene_dressing:/app/scene_dressing:ro
+      - ../worlds:/app/worlds:ro
+
+      # usd フォルダ全体をホスト側から live マウントする (再ビルド不要で反映)。
+      # (イメージにも ADD usd で焼き込み済みなので、マウントを外せばイメージ内が使われる)
+      # ※ ホスト側で wrs_models / hsrb サブモジュールが checkout 済みである必要あり。
+      - ../usd:/app/usd:ro
+
       # configs/ はリリース後の運用調整用に bind mount でホスト側を優先
       # (イメージにも焼き込みされているのでマウントを外せばイメージ内のデフォルトが使われる)
       - ../configs:/app/configs:ro
-      # テクスチャはデフォルトで repo 内の configs/textures/ を使う。
-      # 本番テクスチャを使うときは ${HOME}/datasets/SceneTextures などに置き換える。
+      # テクスチャはデフォルトで repo 内の configs/textures/ を使う
+      # (本物の lab テクスチャを焼き込み済み)。
       - ../configs/textures:/data/textures:ro
+
       #- /usr/share/vulkan/icd.d:/usr/share/vulkan/icd.d:ro
       #- /usr/share/vulkan/implicit_layer.d:/usr/share/vulkan/implicit_layer.d:ro
-      - ${HOME}/.hsr-omniverse/cache/kit:/isaac-sim/kit/cache:rw
-      - ${HOME}/.hsr-omniverse/cache/ov:/root/.cache/ov:rw
-      - ${HOME}/.hsr-omniverse/cache/pip:/root/.cache/pip:rw
-      - ${HOME}/.hsr-omniverse/cache/glcache:/root/.cache/nvidia/GLCache:rw
-      - ${HOME}/.hsr-omniverse/cache/computecache:/root/.nv/ComputeCache:rw
-      - ${HOME}/.hsr-omniverse/cache/data:/root/.local/share/ov/data:rw
-      - ${HOME}/.hsr-omniverse/logs:/root/.nvidia-omniverse/logs:rw
+      - ${HOME}/.carrobo-isaac/cache/kit:/isaac-sim/kit/cache:rw
+      - ${HOME}/.carrobo-isaac/cache/ov:/root/.cache/ov:rw
+      - ${HOME}/.carrobo-isaac/cache/pip:/root/.cache/pip:rw
+      - ${HOME}/.carrobo-isaac/cache/glcache:/root/.cache/nvidia/GLCache:rw
+      - ${HOME}/.carrobo-isaac/cache/computecache:/root/.nv/ComputeCache:rw
+      - ${HOME}/.carrobo-isaac/cache/data:/root/.local/share/ov/data:rw
+      - ${HOME}/.carrobo-isaac/logs:/root/.nvidia-omniverse/logs:rw
     depends_on:
-      - ros-noetic
       - cacheproxy
-    #command:
-    #  - /bin/bash
-    #  - -lc
-    #  - |
-    #    rm -rf /root/.local/share/ov/data/* \
-    #           /isaac-sim/kit/cache/* \
-    #           /root/.cache/ov/* \
-    #           /root/.cache/nvidia/GLCache/* \
-    #           /root/.nv/ComputeCache/* && \
-    #    /isaac-sim/python.sh /app/sample-ros.py

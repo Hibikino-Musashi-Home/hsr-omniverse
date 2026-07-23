@@ -95,14 +95,13 @@ WORKDIR /isaac-sim
 RUN mkdir /app
 WORKDIR /app
 ADD scripts/hsr.py /app/hsr.py
-ADD scripts/hsr_hsrc_ex.py /app/hsr_hsrc_ex.py
 ADD scripts/ros2_bridge.py /app/ros2_bridge.py
+ADD scripts/arena_cameras.py /app/arena_cameras.py
 ADD scripts/launch_isaacsim.py /app/launch_isaacsim.py
 ADD scripts/construct_environment.py /app/construct_environment.py
 ADD scripts/object_placement.py /app/object_placement.py
 ADD scripts/people_spawn.py /app/people_spawn.py
 ADD scripts/furniture_spawn.py /app/furniture_spawn.py
-ADD scripts/fetch_isaac_offline_assets.py /app/fetch_isaac_offline_assets.py
 ADD scripts/dressing_presets.py /app/dressing_presets.py
 ADD scene_dressing /app/scene_dressing
 ADD configs /app/configs

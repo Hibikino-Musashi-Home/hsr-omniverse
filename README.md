@@ -1,26 +1,67 @@
-# HSR-Omniverse
+# carrobo-isaac
 
-NVIDIA Omniverse / Isaac Sim 上で HSR を扱うためのリポジトリ。
+カーロボ@Home ロボット実習用の **Isaac Sim シミュレータ環境**。
 
-> **Note:** **ROS1 noetic or ROS 2 Humble + Isaac Sim 4.5**
+トヨタ HSR (Human Support Robot) を NVIDIA Isaac Sim 4.5 上で動かし、
+ROS 2 (Humble) から操作できる。RoboCup@Home 用リポジトリ
+[hsr-omniverse](https://github.com/ry0hei-kobayashi/hsr-omniverse) から
+実習に必要な最小限の要素を切り出したもの。
 
----
+- 部屋: `worlds/carrobo.world` の 1 つだけ
+  (4部屋の TidyUp アリーナ。高さ 0.6m のきれいな壁 + 本物の棚・机の USD モデル)
+- 物体: YCB オブジェクトのみ (`usd/wrs_models`)
+- ロボット: HSR-B のみ
+- ナビゲーション (LiDAR / odom / laser_scan_matcher) と
+  物体把持 (MoveIt / グリッパ / RGB-D カメラ) の機能はそのまま
 
-## クイックスタート (ROS 2 Humble + Isaac Sim 4.5)
+### 部屋のレイアウト (worlds/carrobo.world)
 
-### 動作確認済み環境
+外周 8.0 x 8.0 m を田の字に 4 部屋 (各 4 x 4 m の正方形) に仕切った構成。
+仕切り壁には幅 1.2m のドア開口があり、全部屋を行き来できる。
+外から入る入口 (幅 1.2m) は 1 箇所:
+**北の壁の西寄り (引き出しのある Room NW へ, x -2.2〜-1.0)**。
 
-| 項目                     | バージョン                  |
-| ------------------------ | --------------------------- |
-| OS                       | Ubuntu 22.04                |
-| GPU                      | NVIDIA RTX 4070 (VRAM 12GB) |
-| NVIDIA Driver            | 580.142                     |
-| Docker                   | 29.x                        |
-| NVIDIA Container Toolkit | latest                      |
-| Isaac Sim (コンテナ内)   | 4.5.0                       |
-| ROS 2 (コンテナ内)       | Humble                      |
+```
+   y=+4 ┌──────↓入口──┬──────────────┐
+        │ Room NW 片付け1 │ Room NE 探索1  │
+        │ 引出し+trofast  開   ソファ      │
+        │ 長机+トレイ     口       本棚┃  │
+        │ +コンテナ       │              │
+   y=0  ├──開口──────┼──────開口──┤
+        │ Room SW 片付け2 開  Room SE 探索2│
+        │ ┃本棚          口  ○円卓  椅子┐ │
+        │ ビン×2   高机   │   長机   ビン  │
+   y=-4 └──────────────┴──────────────┘
+       x=-4            x=0            x=+4     (壁の高さ 0.6m)
+```
 
-推奨スペック: RTX 30 系以降, VRAM 12GB 以上, RAM 32GB 以上, 空きディスク 100GB 以上。
+- **Room NW (西上)**: 片付け先1。段違い引き出し・trofast×3・長机+トレイ2+コンテナA/B
+- **Room SW (西下)**: 片付け先2。ビン×2 (黒/緑)・高い机・本棚
+- **Room NE (東上)**: 探索1。本棚・**ソファ** + 床に散らばった YCB 物体
+- **Room SE (東下)**: 探索2。長机・緑ビン・円形テーブル・部屋の角に椅子1脚 + 床の YCB 物体
+- ソファ・円形テーブル・椅子は `configs/placement.yaml` の `furniture:` セクションで配置
+  (ソファ: `usd/sofa/Arnold.usd` を scale 0.7 で約1.8m幅に縮小、
+   円形テーブル/椅子: `usd/restaurant/`)。大きさは `scale:` で調整できる
+- 壁 (`wall_*`) に接触すると `/undesired_contact_detector/detect` に
+  True が出る (競技の Hit 判定と同じ仕組み)
+- 4部屋 + ドア通過は SLAM・ナビゲーションの練習にちょうどよい構造
+- 床 (木目テクスチャ) は壁の外へ約1.4m 広がった正方形で、当たり判定の床
+  (GroundPlane) も同じ大きさ・同じ中心。広げ幅は `scripts/launch_isaacsim.py` の
+  `FLOOR_MARGIN` で調整できる。**床の外にはロボットを走らせないこと** (落ちる)
+
+## 動作環境
+
+| 項目 | 要件 |
+| --- | --- |
+| OS | Ubuntu 22.04 |
+| GPU | NVIDIA RTX 30 系以降, VRAM 12GB 以上推奨 |
+| RAM | 32GB 以上推奨 |
+| ディスク | 空き 100GB 以上 |
+| Docker | docker compose v2 + NVIDIA Container Toolkit |
+
+Isaac Sim 4.5.0 と ROS 2 Humble はコンテナ内に入るので、ホストへのインストールは不要。
+
+## セットアップ
 
 ### 1. Docker と NVIDIA Container Toolkit のインストール
 
@@ -52,255 +93,162 @@ docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
 ### 2. リポジトリのクローン
 
 ```bash
-git clone --recursive https://github.com/ry0hei-kobayashi/hsr-omniverse.git
-cd hsr-omniverse
+git clone --recursive <このリポジトリのURL>
+cd carrobo-isaac
 
 # --recursive を忘れた場合は:
 git submodule update --init --recursive
 ```
 
-### 3. キャッシュディレクトリ作成と X11 許可
+> **重要:** `usd/hsrb` (HSR 本体) と `usd/wrs_models` (YCB 物体, 約900MB) は
+> git submodule。中身が空だとビルド・起動に失敗するので、`ls usd/wrs_models`
+> で `ycb_...` フォルダが見えることを確認する。
+
+### 3. キャッシュディレクトリの作成と画面許可
 
 ```bash
-# キャッシュディレクトリ(docker-compose でマウントされる)
-mkdir -p ~/.hsr-omniverse/cache/{kit,ov,pip,glcache,computecache,data}
-mkdir -p ~/.hsr-omniverse/logs
-
-xhost local:
+mkdir -p ~/.carrobo-isaac/cache/{kit,ov,pip,glcache,computecache,data} ~/.carrobo-isaac/logs
+xhost +local:
 ```
 
-### 4. ビルド・起動
-
-操作は `Makefile` 経由で統一しています。コマンドは `make {ros1|ros2} <action> [pc]` のかたちで組み合わせます (デフォルト `ros2`、`pc` 修飾子は `ros2` 限定)。
+### 4. ビルドと起動
 
 ```bash
-# ROS2 Humble (デフォルト)
-make ros2 build               # 全イメージをビルド
-make ros2 up                  # standalone モード起動 (host ローカル、ROS_DOMAIN_ID=0)
-make ros2 up pc               # PC モード (CycloneDDS PC + ROS_DOMAIN_ID=55)
-ROS_DOMAIN_ID=49 make ros2 up pc  # Domain ID を上書き
-ROS_DOMAIN_ID=26 make ros2 up pc PEER=192.168.0.10  # 相手IP指定で pc.xml 自動生成 (下記参照)
-make ros2 up robot=hsrc_ex    # スポーンするロボットを切り替え (hsrb/hsrc_ex、後述)
-make ros2 down                # 停止
-make ros2 ps                  # コンテナ状態
-make ros2 ros                 # ros2 コンテナで bash
-make ros2 isaacsim            # isaacsim コンテナで bash
-make ros2 logs                # ログを tail
-
-# ROS1 Noetic
-make ros1 build
-make ros1 up
-make ros1 ros                 # ros-noetic コンテナで bash
-
-# 単語の順序は問いません: make pc up ros2 でも同じ
-# 不正な組合せはエラー: make ros1 up pc → 'pc' requires ros2
-
-make                          # 引数なし → help (現在の解決状態も表示)
+make build   # 初回のみ。30分〜1時間程度
+make up      # 起動。初回はシェーダー生成で 10〜20 分かかる
 ```
 
-裏側で参照する compose ファイル:
-- `ros2` → `env_docker/docker-compose-ros2.yml`
-- `ros1` → `env_docker/docker-compose.yml`
+Isaac Sim のウィンドウが開き、部屋 (rc26.world) + YCB 物体 + HSR が表示されれば成功。
 
-Isaac Sim の初回起動は 10〜20 分かかります(シェーダーコンパイル、USD 読み込み)。2 回目以降はマウントしたキャッシュが効くので速くなります。
-
-### 5. ROS 2 トピックの確認
-
-別ターミナルから:
+停止は別端末で:
 
 ```bash
-make ros2 ros
-# コンテナ内で:
-source /opt/ros/humble/setup.bash
-source /ws/install/setup.bash
+make down
+```
+
+## 動作確認
+
+別の端末で ros2 コンテナに入り、トピックを確認する:
+
+```bash
+make ros                 # ros2 コンテナの bash に入る
 ros2 topic list
+ros2 topic hz /scan                                    # LiDAR (~10Hz)
+ros2 topic hz /head_rgbd_sensor/rgb/image_rect_color   # 頭部RGBカメラ
+ros2 topic echo /joint_states --once                   # 関節角度
 ```
 
-#### トラブルシューティング: トピックが `/parameter_events` と `/rosout` しか出ない
-
-`ros2 topic list` の結果が `/parameter_events` と `/rosout` の 2 つだけになることがあります。多くの場合トピックが流れていないのではなく、**`ros2` の探索デーモン (今あるトピック/ノードを覚えておく裏方プロセス) が古い「空」の状態をキャッシュしている**ためです。Isaac Sim はロードに時間がかかる (初回はシェーダーコンパイルで 10〜20 分) ので、Isaac Sim がトピックを出し始める前にデーモンが起動すると「何も無い」と覚えたまま更新されません。
-
-対処は 1 行。デーモンを止めれば次のコマンドで自動的に作り直され、最新の状態を取得します:
+ロボットを動かしてみる (前進):
 
 ```bash
-ros2 daemon stop
-ros2 topic list   # 再取得
+ros2 topic pub -r 10 /omni_base_controller/cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.1}}"
 ```
 
-正しく流れていれば `/joint_states` (約 30Hz)・`/scan`・`/head_rgbd_sensor/...` (カメラ)・`/tf` や、ノード `/isaac_sim_hsr` などが見えます。確認用:
+シーンを初期状態に戻す:
 
 ```bash
-ros2 topic hz /joint_states     # 流量 (Hz) を見る
-ros2 topic echo /scan --once    # 中身を 1 件だけ見る
+ros2 service call /isaac/reset_world std_srvs/srv/Empty
 ```
 
-> **切り分けのヒント:** isaacsim コンテナ自身と ros2 コンテナの両方から `ros2 topic list` を比べると、「コンテナ間通信の問題」か「Isaac Sim 側がまだ出していない」かを判別できます。なお Isaac Sim が完全に起動し終えてから確認すれば、最初から正しく見えることがほとんどです。
-
-### 別 PC からアクセスする (CycloneDDS PC モード, ROS2 のみ)
-
-別マシンの ROS 2 (例: HSR 実機 / Singularity を入れた操作用ラップトップ) と通信したい場合は
-`make ros2 up pc` を使います (ROS1 と組み合わせるとエラー)。
-
-**相手 IP を `PEER=` で渡すと `assets/cyclonedds.pc.xml` を自動生成します**(NIC 名は相手と同じ
-サブネットから自動判定。手編集不要):
+## 競技モード (時間制限つき実行 + 4方向カメラ録画)
 
 ```bash
-ROS_DOMAIN_ID=26 make ros2 up pc PEER=192.168.0.10        # 相手1台
-ROS_DOMAIN_ID=26 make ros2 up pc PEER="192.168.0.10 192.168.0.11"  # 複数台
+make up TIME=600    # 競技時間 600 秒 (シミュレータ内時間)
 ```
 
-- `PEER=` を付けると起動前に `scripts/gen_cyclonedds_pc.sh` が走り、自分の NIC を自動判定して
-  `assets/cyclonedds.pc.xml` を書き出します。NIC を明示したいときは `ISAAC_NIC=enp3s0` を併用。
-- `PEER=` を省くと既存の `assets/cyclonedds.pc.xml` をそのまま使います。
-- 手動生成だけしたいとき: `./scripts/gen_cyclonedds_pc.sh 192.168.0.10`
-- 生成される `assets/cyclonedds.pc.xml` は**環境依存**です(git では変更扱いになるのでコミットしない)。
+`TIME=<秒>` を付けて起動すると競技モードになる:
 
-`pc` 修飾子は `CYCLONEDDS_URI=file:///cyclonedds.pc.xml` と `ROS_DOMAIN_ID` を export して compose を
-起動します。`assets/cyclonedds.pc.xml` は常時 bind mount されているのでイメージのリビルドは不要です。
+- アリーナの外側の高い位置に**観戦カメラが 4 台** (北/南/東/西) 設置され、
+  部屋全体を見下ろす映像をシミュレータ内部で録画する
+  (「どこに何を片付けたか」を人が目視で採点できる)
+- **4 画面を 2x2 に並べた 1 本の動画** `recordings/日付_時刻/arena.mp4` に保存される
+  (上段: NORTH | EAST、下段: SOUTH | WEST。各画面にカメラ名入り)
+- 動画の左上に **タスク経過時間 (`TASK 03:21 / 10:00`)** が焼き込まれる
+- 競技時間 (シミュレータ内時間) が来たら**動画を保存してシミュレータ一式が自動終了**する
+- 1/20 シミュ秒 = 1 フレームで書き出すため、動画の再生時間 = 競技時間になる
 
-> **ROS_DOMAIN_ID は両 PC で必ず揃える**こと。`pc` の Makefile 既定は 55 ですが、操作側
-> (Singularity の `5d_isaac_sim_mode.sh`) が 26 を使う場合は、Sim 側も `ROS_DOMAIN_ID=26` を付けて
-> 揃えます。ずれると一切つながりません。
+カメラの高さ・距離・解像度は `configs/placement.yaml` に `arena_cameras:`
+セクションを書くと変えられる (詳細は `scripts/arena_cameras.py` の冒頭コメント)。
+`TIME` を付けない通常起動ではカメラは作られない (描画も軽いまま)。
 
-#### 相手がジョイスティック操作用ラップトップ (Singularity) の場合
+## 主要な ROS 2 インタフェース
 
-役割分担は実機と同じで、Sim 側 (この ros2 コンテナ) がロボット本体の代わりにテレオペ
-"ロジック本体"(`hsr.launch.py` の `use_teleop`、既定 ON) を動かし、ラップトップ側は通常の
-bringup(joy_node + teleop 並べ替え)を動かして `/joy` を送ります。ラップトップ側は
-`. 5d_isaac_sim_mode.sh --network <この PC の IP>` で domain/peer/NIC が自動設定されます
-(NIC は同サブネットから自動判定、`ip` が無い環境でも python3 でフォールバック)。
+| 種別 | 名前 | 用途 |
+| --- | --- | --- |
+| Topic (pub) | `/scan` | LiDAR スキャン (ナビゲーション) |
+| Topic (pub) | `/head_rgbd_sensor/rgb/image_rect_color` | 頭部 RGB 画像 (物体認識) |
+| Topic (pub) | `/head_rgbd_sensor/depth_registered/image_raw` | 頭部 深度画像 |
+| Topic (pub) | `/joint_states` | 全関節の角度 |
+| Topic (pub) | `/omni_base_controller/wheel_odom` | オドメトリ (シミュレータ真値) |
+| Topic (pub) | `/switched_odom` | オドメトリ (切替後の出力。既定で wheel_odom) |
+| TF | `map → odom → base_footprint → 各センサ` | 座標変換 |
+| Topic (sub) | `/omni_base_controller/cmd_vel` (Twist) | 台車の速度指令 |
+| Action | `follow_joint_trajectory` (アーム/頭部) | 関節軌道の実行 |
+| Action | グリッパ (apply_force 等) | 物体の把持 |
+| MoveIt | `move_group` ノード | アームの動作計画 |
+| Service | `/isaac/reset_world` | シーンを初期配置に戻す |
+| Service | `/gazebo/get_model_state` | 物体の位置取得 (Gazebo互換API) |
 
----
+## 設定の変更
 
-## タスクを選んで起動する（タスク開発者向け）
+| やりたいこと | 編集するファイル |
+| --- | --- |
+| ロボットの初期位置・物体の配置を変える | [`configs/placement.yaml`](./configs/placement.yaml) |
+| 部屋の見た目 (床・壁・照明) を変える | [`configs/dressing.yaml`](./configs/dressing.yaml) |
+| 部屋の間取りそのもの | [`worlds/rc26.world`](./worlds/) |
 
+`configs/` と `worlds/` はコンテナに bind mount されているので、
+編集後は `make down && make up` だけで反映される (リビルド不要)。
+詳細は [`configs/README.md`](./configs/README.md) を参照。
 
-> world・物体配置・見た目などの設定変更は`configs/` 側で行います。
-
-初回のみ、上の「クイックスタート」の手順で `make ros2 build` までを済ませておきます。
-あとは毎回これ 1 行です。
+## 開発モード (コードを編集しながら動かす)
 
 ```bash
-make ros2 up TASK=hri
+make dev up     # コンテナだけバックグラウンド起動 (シミュレータは自動起動しない)
+make dev run    # 同じ端末でシミュレータを実行 (エラーやログがここに出る)
+make dev down   # 停止
 ```
 
-`TASK=<名前>` で起動するタスクを選びます。使える名前:
+dev モードでは `scripts/` がディレクトリごとマウントされるため、
+Python の編集が `make dev run` のやり直しだけで反映される。
 
-| TASK の名前 | タスク |
-|---|---|
-| `hri` | Human Robot Interaction |
-| `pick_and_place` | Pick and Place |
-| `gpsr` | General Purpose Service Robot |
-| `laundry` | Doing Laundry |
-| `restaurant` | Restaurant |
+## トラブルシューティング
 
-```bash
-make ros2 up                  # TASK を付けないと既定設定で起動
-make ros2 up TASK=restaurant  # 別のタスクに切り替え
-make ros2 down                # 終了 (コンテナ停止)
-```
+- **ウィンドウが出ない**: `xhost +local:` を実行したか確認。SSH 越しは不可 (ローカルの画面が必要)。
+- **起動が遅い**: 初回はシェーダーコンパイルで 10〜20 分かかる。2 回目以降は
+  `~/.carrobo-isaac/cache/` にキャッシュされて速くなる。
+- **物体が出ない / `Model not found`**: submodule が空の可能性。
+  `git submodule update --init --recursive` を実行。
+- **`[placement] WARNING` が出る**: `configs/placement.yaml` の家具名が
+  `worlds/rc26.world` の `<name>` と一致していない。
+- **数時間つけっぱなしで急に落ちる**: メモリ不足 (OOM) の可能性が高い。
+  `docker inspect carrobo-isaac-isaacsim-1 --format '{{.State.OOMKilled}}'` が
+  `true` なら確定。Isaac Sim は長時間動かすとメモリ使用量が増えるので、
+  使わない時間帯は `make down` で止めるのが確実。RAM 32GB のマシンでは
+  スワップを増やしておくとさらに安心:
+  ```bash
+  sudo fallocate -l 16G /swapfile2 && sudo chmod 600 /swapfile2
+  sudo mkswap /swapfile2 && sudo swapon /swapfile2
+  # 恒久化するなら /etc/fstab に「/swapfile2 none swap sw 0 0」を追記
+  ```
+- **おかしくなったら**: `make down` してから `make up` でやり直す。
 
-### ロボットを切り替える（hsrb / hsrc_ex）
-
-スポーンするロボットは `robot=`（小文字）または `ROBOT=`（大文字）で選びます。`TASK=` と同じく `up` に付けます。
-
-| `robot=` の値 | ロボット | 使う USD |
-|---|---|---|
-| `hsrb` | HSR-B（**既定**） | `usd/hsrb/` |
-| `hsrc_ex` | HSR-C 拡張版 | `usd/hsrc/hsrc1s.usd`（`scripts/hsr_hsrc_ex.py` で起動） |
-
-```bash
-make ros2 up robot=hsrb              # HSR-B で起動（既定なので省略しても同じ）
-make ros2 up robot=hsrc_ex           # HSR-C 拡張版で起動
-make ros2 up TASK=hri robot=hsrc_ex  # TASK と併用も可
-ROBOT=hsrc_ex make ros2 up           # 大文字の環境変数でも同じ
-```
-
-- 省略時は `hsrb` で起動します。
-- 優先順位は `robot=` / `ROBOT=` ＞ 既定（`hsrb`）。
-
-### タスクごとの設定を変えたいとき
-
-各タスクの **world / 物体・ロボット・人の配置 / 見た目** は `configs/tasks/<名前>/` で定義します。
-編集方法・フォルダの中身は **➡ [configs/tasks/README.md](./configs/tasks/README.md)** を参照してください。
-
-- 設定ファイル全体の構成（共通の既定など）: [configs/README.md](./configs/README.md)
-
----
-
-## オフライン対応（会場でネットが使えないとき）
-
-RoboCup 会場は Wi-Fi が使えないため、このシミュレータは**完全オフライン**で動くようにしてあります。
-
-### 何が問題だったか
-これまで「人（手を振るお客さん等）」は、起動のたびに NVIDIA のアセットサーバ（ネット）から
-人体モデル（`Biped_Setup.usd`）とアニメ（`*.skelanim.usd`）を取得していました。会場では
-ネットが無いので、ここが動かなくなる恐れがありました。
-
-### どう直したか
-必要な人アセットを、**アセットサーバと同じフォルダ構成のまま** `usd/isaac_offline/` に
-同梱（コピー）しました。`people_spawn.py` / `furniture_spawn.py` は
-
-1. まず `usd/isaac_offline/` にファイルがあればそれを使う（＝ネット不要）
-2. 無ければ従来どおりアセットサーバから取得（オンライン時のフォールバック）
-
-の順で解決します。**アニメ（手を振る等）は「骨の動きの数値データ」ファイルで、一度ローカルに
-読み込めば再生中はネット不要**です。だからモーション込みで完全オフラインになります。
+## リポジトリ構成
 
 ```
-usd/isaac_offline/                         ← アセットサーバのローカルミラー（同梱）
-└── Isaac/People/
-    ├── Characters/Biped_Setup.usd         ← 人体モデル（+ biped_demo/ のメッシュ・テクスチャ）
-    └── Animations/*.skelanim.usd          ← 手を振る/立つ/座る 等のアニメ
+carrobo-isaac/
+├── Makefile                 # make build / up / down などの入り口
+├── env_docker/              # Dockerfile と docker-compose 設定
+├── scripts/                 # Isaac Sim 側の Python (シーン構築・ROS2ブリッジ)
+│   ├── launch_isaacsim.py   #   エントリポイント (部屋・物体・HSRを配置して開始)
+│   ├── hsr.py               #   HSR 本体の制御と ROS2 ブリッジ
+│   └── object_placement.py  #   placement.yaml に従って物体を配置
+├── launch/                  # ROS 2 側の launch (MoveIt, odom, teleop など)
+├── configs/                 # 実行時設定 (placement.yaml / dressing.yaml)
+├── worlds/rc26.world        # 部屋の定義 (家具・壁の配置)
+├── scene_dressing/          # 床・背景・照明を作る Python パッケージ
+├── assets/                  # DDS 設定・エントリポイントスクリプト等
+└── usd/
+    ├── hsrb/                # [submodule] HSR-B の 3D モデル
+    └── wrs_models/          # [submodule] YCB 物体 + WRC 家具の 3D モデル
 ```
-
-### ミラーを作り直す・増やす（オンライン環境で一度だけ）
-`usd/isaac_offline/` は、ネットに繋がる環境で次を一度実行すれば自動生成されます
-（依存ファイルを再帰的にたどって漏れなく取得します）。
-
-```bash
-make ros2 offline-assets
-# 追加でサーバ上の家具なども取りたいとき:
-make ros2 offline-assets FETCH_ARGS='--path /NVIDIA/Assets/ArchVis/.../Table.usd'
-```
-
-中身は `scripts/fetch_isaac_offline_assets.py`、対象一覧は同ファイルの `DEFAULT_SEEDS`。
-詳細は [`usd/isaac_offline/README.md`](./usd/isaac_offline/README.md)。
-
-### ⚠️ 会場へ持ち込む前に（重要）
-別の PC でクローンして使う場合、`usd/isaac_offline/`（約 134MB）が**その PC に存在している
-必要があります**。方法は次のどちらか:
-
-- **(A) リポジトリにコミットしておく**（推奨・確実）: `git add usd/isaac_offline/` してコミット。
-  クローンするだけで会場でも人が出ます。※約 134MB 増えます。
-- **(B) 各 PC で会場前に取得**: その PC で一度 `make ros2 offline-assets` を実行（要ネット）。
-
-### 起動時の確認方法
-起動ログに次が出ていれば、人はローカル（オフライン）から読めています:
-
-```
-[people] 人アセットはローカル同梱を使用します(オフラインOK・ネット不要): /app/usd/isaac_offline/...
-```
-
-代わりに `WARNING: ... オンライン取得にフォールバック` が出たら、`usd/isaac_offline/` が
-その PC に無い状態です（上の (A) または (B) を実施してください）。
-
----
-
-## ディレクトリ構成
-
-```
-.
-├── 3rdparty/      # 外部由来モジュール (OgnROS1Action*.py)
-├── assets/        # 設定/リソース (cyclonedds.xml, cyclonedds.pc.xml, ros_entrypoint.sh.ros2, hsr-omniverse.rviz)
-├── configs/       # 実行時設定 (placement.yaml, dressing.yaml, tasks/ …) ※下のリンク参照
-├── env_docker/    # Dockerfile.* と docker-compose*.yml
-├── launch/        # ROS1/ROS2 launch ファイル
-├── scripts/       # 実行スクリプト (hsr.py, ros2_bridge.py, launch_isaacsim.py, fetch_isaac_offline_assets.py 他)
-├── usd/           # USD アセット (isaac_offline/ = オフライン用の人アセット同梱ミラー)
-└── worlds/        # .world ファイル (家具・壁の配置)
-```
-
-エントリポイント: `scripts/launch_isaacsim.py` (旧 `sample-ros.py`)。Isaac Sim から HSR を起動するメインスクリプト。
-
-設定まわり (タスク別の world/配置/見た目): [configs/README.md](./configs/README.md) → タスク個別は [configs/tasks/README.md](./configs/tasks/README.md)。

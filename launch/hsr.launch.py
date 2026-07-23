@@ -31,26 +31,6 @@ def declare_arguments():
             description='URDF/XACRO description file with the robot.',
         )
     )
-    # compressed RGB-D 中継ノード(1本)全体の ON/OFF スイッチ。既定 true。
-    # 1ノードで openmm/mmpose・pcl_reconst 両方が要求する compressed/compressedDepth を出す
-    # (マッピングは scripts/openmm_rgbd_compression_republisher.py の DEFAULT_MAPPINGS)。
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            'openmm_rgbd_compression',
-            default_value='true',
-            description='Publish compressed RGB-D topics (openmm/mmpose & pcl_reconst) via one republisher.',
-        )
-    )
-    # hsrc_ex シーンが color/camera_info で出す camera_info を rgb/camera_info に名前替え中継するか。
-    # 既定 true。圧縮トピックの統合後、この引数は camera_info 中継(relay)専用に縮小した
-    # (hsrb シーンは rgb/camera_info をネイティブに出すので relay は入力が無く無害)。
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            'hsrb_reconst_topics',
-            default_value='true',
-            description='Relay color/camera_info -> rgb/camera_info for hsrc_ex scene (camera_info only).',
-        )
-    )
     # Isaac Sim 側 (この ros2 コンテナ) の MoveIt 付属 RViz2 を起動するか。
     # 既定 false: ふだん RViz は別 (Singularity 側等) で立てるので二重起動を避ける。
     # 立てたいときだけ `ros2 launch /hsr.launch.py use_rviz:=true`。
@@ -231,47 +211,6 @@ def generate_launch_description():
     )
 
     launch_dir = os.path.dirname(os.path.abspath(__file__))
-    local_republisher = os.path.join(
-        os.path.dirname(launch_dir),
-        'scripts',
-        'openmm_rgbd_compression_republisher.py',
-    )
-    image_republisher_script = (
-        local_republisher
-        if os.path.exists(local_republisher)
-        else '/openmm_rgbd_compression_republisher.py'
-    )
-    # RGB-D の compressed/compressedDepth を作る中継ノード(1本に統合)。
-    # 入力(生Image)→出力(CompressedImage)のマッピングはスクリプト側 DEFAULT_MAPPINGS に集約。
-    # hsrc_ex 名(color/image_raw)と HSR-B 名(rgb/image_rect_color)の両方を入力に取り、実在する
-    # 入力だけが流れる(無い入力は無出力)。omniverse robot=hsrb は タスク側 hsrc として扱い、
-    # hsrc スタック(VLM/openmm/pcl_reconst)が要求する compressed を全部出す。
-    rgbd_compression = ExecuteProcess(
-        cmd=[
-            'python3',
-            image_republisher_script,
-            '--ros-args',
-            '-p',
-            'use_sim_time:=true',
-        ],
-        output='screen',
-        condition=IfCondition(args['openmm_rgbd_compression']),
-    )
-
-    # pcl_reconst は rgb/camera_info を要求するが、hsrc_ex シーンは
-    # color/camera_info で出すため、名前替えして中継する
-    # (中身は同じ 640x480・同一フレームのカメラ内部パラメータ)。
-    hsrb_reconst_camera_info_relay = Node(
-        package='topic_tools',
-        executable='relay',
-        name='hsrb_reconst_camera_info_relay',
-        arguments=[
-            '/head_rgbd_sensor/color/camera_info',
-            '/head_rgbd_sensor/rgb/camera_info',
-        ],
-        parameters=[{'use_sim_time': True}],
-        condition=IfCondition(args['hsrb_reconst_topics']),
-    )
 
     laser_scan_matcher = Node(
         package='ros2_laser_scan_matcher',
@@ -336,8 +275,6 @@ def generate_launch_description():
         relay_node,
         laser_scan_matcher,
         reset_world_matcher_helper,
-        rgbd_compression,
-        hsrb_reconst_camera_info_relay,
         sensor_frames,
         joint_state_publisher,
         robot_state_publisher,

@@ -4,3 +4,6 @@
 # Python cache
 __pycache__/
 .env
+
+# 競技モードの録画出力 (make up TIME=...)
+recordings/

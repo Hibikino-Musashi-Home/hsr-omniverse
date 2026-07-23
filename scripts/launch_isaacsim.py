@@ -16,7 +16,6 @@
 # the post-SimulationApp imports above the kit = SimulationApp(...) call below;
 # doing so reintroduces "ModuleNotFoundError: No module named 'omni.kit.commands'".
 
-import math
 import os
 import threading
 import xml.etree.ElementTree as ET
@@ -43,7 +42,6 @@ import omni.kit.commands
 from isaacsim.core.api.materials.physics_material import PhysicsMaterial
 from isaacsim.core.version import get_version
 from isaacsim.sensors.physics import ContactSensor
-from isaacsim.storage.native import get_assets_root_path
 from omni.isaac.core import SimulationContext
 from omni.isaac.core.prims import GeometryPrim
 from omni.isaac.core.utils import nucleus, stage, viewports
@@ -56,62 +54,36 @@ from pxr import (Gf, PhysicsSchemaTools, PhysxSchema, Sdf, Usd, UsdGeom,
                  UsdPhysics)
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from std_msgs.msg import Empty as EmptyMsg
-from tmc_wrs_gazebo_worlds import randomizer
 
 # Local modules that import omni at module top -> must come after Kit boots.
 import construct_environment
+import arena_cameras
 import furniture_spawn
 import hsr
 import people_spawn
 # isort: on
 
 
-# from omni.isaac.core.materials.physics_material import PhysicsMaterial
+# この実習リポジトリは ROS 2 (Humble) 専用 (元の hsr-omniverse にあった ROS1 対応は削除済み)。
+import rclpy
+from gazebo_msgs.srv import GetModelState, GetWorldProperties
+from std_srvs.srv import Empty as EmptySrv
 
-
-# from omni.isaac.core import SimulationContext
-# from omni.isaac.core.utils import viewports, stage
-# from omni.isaac.core.utils.prims import create_prim
-# from omni.isaac.core.utils.rotations import euler_angles_to_quat
-# import omni.kit.commands
-
-
-# from isaacsim.sensors.physics import _sensor
-
-
-# from pxr import Sdf, Usd, UsdGeom, Gf, UsdPhysics, PhysxSchema, PhysicsSchemaTools
-# from omni.physx import get_physx_simulation_interface
-# from omni.isaac.sensor import ContactSensor
-# from omni.isaac.sensor import _sensor
-# from omni.isaac.core.materials.physics_material import PhysicsMaterial
-
-
-is_ros2 = False
+# ============================================================
+# 競技モード (TASK_TIME 環境変数)
+# ============================================================
+# `make up TIME=600` のように競技時間 (秒, シミュレータ内時間) を指定すると:
+#   - 4方向の観戦カメラで録画 (arena_cameras.py)
+#   - 競技時間が来たら動画を保存してシミュレータを自動終了
+# 未指定 (0) なら従来どおり: カメラなし・時間無制限。
 try:
-    import rclpy
-    from gazebo_msgs.srv import GetModelState, GetWorldProperties
-    from std_srvs.srv import Empty as EmptySrv
-
-    is_ros2 = True
-except ImportError:
-    import rospy
-    from gazebo_msgs.srv import (GetModelState, GetModelStateResponse,
-                                 GetWorldProperties,
-                                 GetWorldPropertiesResponse)
-    from std_srvs.srv import Empty as EmptySrv
-    from std_srvs.srv import EmptyResponse
-
-try:
-    import rosgraph
-
-    if not rosgraph.is_master_online():
-        print('Please run roscore before executing this script')
-        kit.close()
-        exit()
-except ImportError:
-    pass
-
-# reset_world 後の localization 復帰用メッセージ。import パスは ROS1/ROS2 共通。
+    TASK_TIME = float(os.environ.get('TASK_TIME', '') or 0)
+except ValueError:
+    print(f"[task] WARNING: TASK_TIME={os.environ.get('TASK_TIME')!r} を数値として"
+          f"読めません。競技モードは無効にします。")
+    TASK_TIME = 0.0
+if TASK_TIME > 0:
+    print(f'[task] 競技モード: {TASK_TIME:.0f} 秒 (シミュレータ内時間) で自動終了・録画あり')
 
 viewports.set_camera_view(eye=np.array(
     [3.7, 1.7, 5.0]), target=np.array([0, 0, 0]))
@@ -132,42 +104,14 @@ create_prim(
 )
 
 
-# アセットの「根っこ(root)」の決め方。
-# 注意: get_assets_root_path() は、オフライン(会場=ネットなし)だとアセットサーバへ
-# blocking 接続(omni.client.stat)を試みて起動がそこで固まる。人など必要なアセットは
-# usd/isaac_offline/ に同梱済みなので、ミラーがあるときはこの問い合わせを丸ごとスキップし、
-# assets_root をミラーのローカルパスにして固まりを防ぐ(= 完全オフラインで起動できる)。
-#   - ミラー内の /Isaac/... は people_spawn/furniture_spawn がローカルから読む。
-#   - ミラーに無い /NVIDIA/... 等はローカルに存在せず「見つからない」で安全にスキップされる
-#     (ネットへは行かないので固まらない)。
-#   - どうしてもオンラインのアセットサーバを使いたいときは ISAAC_FORCE_ONLINE_ASSETS=1。
-_OFFLINE_MIRRORS = [
-    '/app/usd/isaac_offline',  # コンテナ内 (usd マウント / イメージ ADD で配備)
-    os.path.join(
-        os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))), 'usd', 'isaac_offline'
-    ),  # ホストで直接実行したとき
-]
-_offline_mirror = next((d for d in _OFFLINE_MIRRORS if os.path.isdir(d)), None)
-if _offline_mirror and os.environ.get('ISAAC_FORCE_ONLINE_ASSETS') != '1':
-    # 同梱ミラーあり -> ネット問い合わせをせずローカルを root にする(オフライン)。
-    assets_root_path = _offline_mirror
-    print(
-        f'[assets] オフライン同梱ミラーを使用 (get_assets_root_path をスキップ・ネット不要): '
-        f'{assets_root_path}'
-    )
-else:
-    # ミラーが無い(従来動作): オンラインでアセットサーバの root を探す。
-    assets_root_path = get_assets_root_path()
-    if assets_root_path is None:
-        # サーバが見つからないとき、既知の公開URLにフォールバックして起動クラッシュを防ぐ。
-        # 別サーバ/別バージョンを使うときは環境変数 ISAAC_ASSETS_ROOT で上書きできる。
-        assets_root_path = os.environ.get(
-            'ISAAC_ASSETS_ROOT',
-            'https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5',
-        )
-        print(
-            f'[assets] get_assets_root_path() が None。フォールバック使用: {assets_root_path}')
+# アセットの「根っこ(root)」。
+# この実習構成では人 (people) や公式家具アセットを使わないため実質未使用だが、
+# people_spawn / furniture_spawn の引数として渡すので既定の公開 URL を持っておく。
+# 別サーバを使いたいときは環境変数 ISAAC_ASSETS_ROOT で上書きできる。
+assets_root_path = os.environ.get(
+    'ISAAC_ASSETS_ROOT',
+    'https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5',
+)
 
 
 # ============================================================
@@ -189,14 +133,47 @@ create_prim(
     attributes={'inputs:intensity': 1000.0, 'inputs:color': (1.0, 1.0, 1.0)},
 )
 
-# 物理の地面 (ロボット・物体が乗る面)。大きく薄い箱に当たり判定を付け、上面を z=0 に置く。
-# (以前は背景 USD に含まれていた GroundPlane の代わり。)
+# ============================================================
+# ワールドファイルの決定と床サイズの計算
+# ============================================================
+# ワールドは worlds/carrobo.world 固定 (実習用に 1 つだけ)。
+# 床 (見た目のテクスチャ床と当たり判定の床) を部屋に合わせた大きさで作るため、
+# 地面を作る前にワールドファイルを読んで部屋の外周を計算しておく。
+repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+world_candidates = [
+    '/app/worlds/carrobo.world',  # コンテナ内 (イメージに ADD 済み / bind mount)
+    os.path.join(repo_root, 'worlds', 'carrobo.world'),  # ホストで直接実行したとき
+]
+world_file = next((p for p in world_candidates if os.path.exists(p)), None)
+if world_file is None:
+    raise FileNotFoundError(
+        f'worlds/carrobo.world が見つかりません (探した場所: {world_candidates})')
+print(f'Loading world file: {world_file}')
+
+# 床の一辺 = 部屋 (壁・家具の外周) + 余白。
+# FLOOR_MARGIN を大きくすると、床が壁の外までその分だけ広がる。
+# 見た目のテクスチャ床 (dressing) と当たり判定の床 (GroundPlane) を
+# 同じ大きさ・同じ中心にそろえる (灰色の床がテクスチャの外にはみ出さない)。
+FLOOR_MARGIN = 1.5  # 壁の外へ広げる余白 (m)
+_wb = object_placement.world_xy_bounds(world_file)
+if _wb is not None:
+    _floor_size = max(_wb[1] - _wb[0], _wb[3] - _wb[2]) + 2.0 * FLOOR_MARGIN
+    _floor_cx = (_wb[0] + _wb[1]) / 2.0
+    _floor_cy = (_wb[2] + _wb[3]) / 2.0
+else:
+    _floor_size, _floor_cx, _floor_cy = 15.0, 0.0, 0.0
+print(f'[floor] size={_floor_size:.2f}m center=({_floor_cx:.2f}, {_floor_cy:.2f})')
+
+# 物理の地面 (ロボット・物体が乗る面)。薄い板に当たり判定を付け、上面を z=0 に置く。
+# 大きさは上で計算した「テクスチャ床と同じ」正方形。厚さは 5cm (横から見ても薄い板)。
+_GROUND_THICKNESS = 0.05  # 床の厚さ (m)
 _GROUND_PATH = '/World/GroundPlane'
 _ground_prim = create_prim(
     prim_path=_GROUND_PATH,
     prim_type='Cube',
-    translation=[0.0, 0.0, -1.0],  # サイズ2の Cube を z 方向 1 倍 → 上面が z=0
-    scale=[50.0, 50.0, 1.0],  # 約 100m x 100m の床 (場所を選ばず乗れる)
+    # サイズ2の Cube なので scale = 実寸の半分。上面が z=0 に来るよう中心を厚さの半分だけ下げる。
+    translation=[_floor_cx, _floor_cy, -_GROUND_THICKNESS / 2.0],
+    scale=[_floor_size / 2.0, _floor_size / 2.0, _GROUND_THICKNESS / 2.0],
 )
 physx_utils.setCollider(_ground_prim, approximationShape='none')
 
@@ -216,7 +193,6 @@ model_names = []
 # 拾えない。ここに記録しておき、recol で同じ実行時メンテナンス(collider 再登録)を
 # 適用してロボットがすり抜けないようにする。
 _runtime_rigid_object_paths = []
-repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # ============================================================
 # reset_world
@@ -242,100 +218,15 @@ model_root = os.path.join(repo_root, 'usd', 'wrs_models')
 if not os.path.exists(model_root):
     model_root = '/app/usd/wrs_models'
 
-# 自作モデル (my_models / rc26_practice_day_1 など) を読み込み時に剛体化したとき
-# に付ける「既定の質量 (kg)」。YCB は 1 つずつ実測値が入っているが、自作モデルは
-# 値が無いので一律この既定値を入れる (PhysX 任せの自動推定だと密度×体積で大きく
-# ブレるため)。個別の正確な値が必要になったら、後でモデルごとに調整する。
+# YCB 以外の「物理設定を持たないモデル」を読み込んだときに付ける既定の質量 (kg)。
+# YCB は 1 つずつ実測値が model.usd に入っているので、この値は通常使われない。
 DEFAULT_OBJECT_MASS_KG = 0.2
 
 # ============================================================
-# タスク選択 (TASK 環境変数)
+# ワールド (部屋) の読み込み
 # ============================================================
-# `make ros2 dev run TASK=hri` のように指定すると、configs/tasks/<TASK>/ の
-# 設定 (world / placement / dressing) を使う。TASK 未指定なら従来どおり
-# configs 直下の既定を使う (後方互換)。
-#   - task.yaml ... world のファイル名 と dressing の選択 (preset/lighting)
-#   - placement.yaml (任意) ... robot/objects/people。無ければ共通の既定。
-_task = os.environ.get('TASK', '').strip()
-_task_world_name = None  # task.yaml の world: (worlds/ 内のファイル名)
-_task_placement_path = None  # None なら configs/placement.yaml (各ローダーの既定)
-_task_dressing_preset = None  # None なら dressing.yaml の defaults
-_task_dressing_lighting = None
-if _task:
-    _task_dir = next(
-        (
-            d
-            for d in (
-                os.path.join('/app/configs/tasks', _task),
-                os.path.join(repo_root, 'configs', 'tasks', _task),
-            )
-            if os.path.isdir(d)
-        ),
-        None,
-    )
-    if _task_dir is None:
-        raise FileNotFoundError(
-            f"TASK='{_task}' のフォルダが見つかりません。configs/tasks/{_task}/ を作ってください。"
-        )
-    print(f"[task] selected TASK='{_task}' dir={_task_dir}")
-
-    # task.yaml (world と dressing の選択) を読む。
-    _task_yaml = os.path.join(_task_dir, 'task.yaml')
-    if os.path.isfile(_task_yaml):
-        with open(_task_yaml) as _f:
-            _tcfg = yaml.safe_load(_f) or {}
-        _task_world_name = _tcfg.get('world')
-        _dsel = _tcfg.get('dressing') or {}
-        _task_dressing_preset = _dsel.get('preset')
-        _task_dressing_lighting = _dsel.get('lighting')
-    else:
-        print(f'[task] WARNING: {_task_yaml} が無いので world/dressing は既定を使います。')
-
-    # placement.yaml はタスクフォルダにあればそれを優先 (無ければ共通の既定)。
-    _p = os.path.join(_task_dir, 'placement.yaml')
-    if os.path.isfile(_p):
-        _task_placement_path = _p
-        print(f'[task] placement: {_p}')
-    else:
-        print('[task] placement: タスク個別が無いので共通の configs/placement.yaml を使用')
-
-# Extract poses of objects from the world file
-# タスクで world が指定されていれば、それを候補の先頭に置く。
-if _task_world_name:
-    # タスクが world を明示している場合は、それが見つからなければ
-    # 既定 world に黙って落ちず、エラーで止める (typo を見逃さないため)。
-    _task_world_candidates = [
-        os.path.join('/app/worlds', _task_world_name),
-        os.path.join(repo_root, 'worlds', _task_world_name),
-    ]
-    world_file = next(
-        (p for p in _task_world_candidates if os.path.exists(p)), None)
-    if world_file is None:
-        raise FileNotFoundError(
-            f"TASK='{_task}' の world '{_task_world_name}' が worlds/ に見つかりません。"
-            f'task.yaml の world: を worlds/ 内の正しいファイル名にしてください '
-            f'(探した場所: {_task_world_candidates})。'
-        )
-else:
-    # タスク未指定 (または task.yaml に world: なし) のときは従来の候補から探す。
-    world_candidates = [
-        '/app/worlds/rc26_3330.world',
-        os.path.join(repo_root, 'worlds', 'rc26_3330.world'),
-        '/app/worlds/env_furniture_rcj26_pre2.world',
-        os.path.join(repo_root, 'worlds', 'env_furniture_rcj26_pre2.world'),
-        '/app/worlds/rcj26_pre2.world',
-        os.path.join(repo_root, 'worlds', 'rcj26_pre2.world'),
-        os.path.join(repo_root, 'rcj26_pre2.world'),
-    ]
-    world_file = next((p for p in world_candidates if os.path.exists(p)), None)
-    if world_file is None:
-        if is_ros2:
-            world_file = '/ws/install/tmc_wrs_gazebo_worlds/share/tmc_wrs_gazebo_worlds/worlds/wrs2020_knob.world'
-        else:
-            world_file = '/opt/ros/noetic/share/tmc_wrs_gazebo_worlds/worlds/wrs2020_knob.world'
-print(f'Loading world file: {world_file}')
-if not os.path.exists(world_file):
-    raise FileNotFoundError(f'World file not found: {world_file}')
+# ワールドファイル (world_file) は地面を作る前に上で決定済み。
+# ここでは家具・壁の配置を読み取って部屋を組み立てる。
 tree = ET.parse(world_file)
 root = tree.getroot()
 for i in root.findall('world/include'):
@@ -366,6 +257,28 @@ for i in root.findall('world/include'):
         _cube_prim = omni.usd.get_context().get_stage().GetPrimAtPath(stage_path)
         physx_utils.setCollider(_cube_prim, approximationShape='none')
         model_names.append(model_name)
+    if model_uri == 'model://unit_cylinder' and not os.path.exists(model_path):
+        # unit_box と同様に、USD モデルが無い円柱は Cylinder prim で直接作る。
+        # scale は (直径, 直径, 高さ) 指定 → prim には半分を渡す (Cube と同じ扱い)。
+        scale_tag = i.find('scale')
+        if scale_tag is None:
+            size = np.array([1.0, 1.0, 1.0])
+        else:
+            size = np.array([float(n) for n in scale_tag.text.split(' ')])
+        size = np.maximum(size, 1e-4)
+        orientation = euler_angles_to_quat([er, ep, ey])
+        create_prim(
+            prim_path=stage_path,
+            prim_type='Cylinder',
+            translation=[x, y, z],
+            orientation=orientation,
+            scale=size * 0.5,
+        )
+        # 当たり判定 (collider)。円柱は 'none' (三角メッシュ) が使えないことが
+        # あるため convexHull で近似する (テーブルとしては十分な精度)。
+        _cyl_prim = omni.usd.get_context().get_stage().GetPrimAtPath(stage_path)
+        physx_utils.setCollider(_cyl_prim, approximationShape='convexHull')
+        model_names.append(model_name)
     if not os.path.exists(model_path):
         continue
     create_prim(
@@ -392,7 +305,7 @@ def _subtree_has_rigid_body(prim):
     """prim とその子孫のどこかに既に剛体 (RigidBodyAPI) が付いているか調べる。
 
     YCB など model.usd 自身に物理が入っているモデルは True を返す。
-    物理が無い自作モデル (my_models) は False。
+    物理設定を持たないモデルは False。
     """
     for p in Usd.PrimRange(prim):
         if p.HasAPI(UsdPhysics.RigidBodyAPI):
@@ -421,18 +334,10 @@ def drop_object(gazebo_name, name, x, y, z, yaw=0.0, roll=0.0, pitch=0.0):
     # まとめて "_" に置換し、1 階層の安全な prim 名にする。
     safe_name = gazebo_name.replace('-', '_').replace('/', '_')
     stage_path = f'/{safe_name}'
-    # name は次の 2 通りの書き方を許す:
-    #   (A) usd/ からの相対パス  例: 'rc26_practice_day_1/drink/led'
-    #       -> usd/rc26_practice_day_1/drink/led/model.usd を直接指す。
-    #          フォルダ階層まで明示するので、物体名の重複が起きない。
-    #   (B) 物体フォルダ名だけ    例: 'ycb_011_banana', 'led'
-    #       -> 従来どおり my_models / wrs_models を探す (後方互換)。
+    # name は usd/wrs_models/ 内のフォルダ名 (例: 'ycb_011_banana')。
+    # この実習構成では物体は YCB オブジェクトのみを使う。
     model_candidates = [
-        os.path.join(repo_root, 'usd', name, 'model.usd'),  # (A)
-        os.path.join(repo_root, 'usd', 'my_models', name, 'model.usd'),
         os.path.join(model_root, name, 'model.usd'),
-        '/app/usd/' + name + '/model.usd',  # (A)
-        '/app/usd/my_models/' + name + '/model.usd',
         '/app/usd/wrs_models/' + name + '/model.usd',
     ]
     model_path = next((p for p in model_candidates if os.path.exists(p)), None)
@@ -528,61 +433,26 @@ def drop_object(gazebo_name, name, x, y, z, yaw=0.0, roll=0.0, pitch=0.0):
     return model_path
 
 
-# ランダム配置 (WRS 競技の出題) は使わず、configs/placement.yaml の指定に
-# 従って家具の上に物体を配置する。ランダムに戻したいときは下を有効化:
-#   randomizer.generate_wrs_task(drop_func=drop_object)
-object_placement.apply_placements(
-    world_file, drop_object, config_path=_task_placement_path)
+# configs/placement.yaml の指定に従って家具の上に物体 (YCB) を配置する。
+object_placement.apply_placements(world_file, drop_object)
 
 # placement.yaml の people: セクションに従って「人」を配置する。
-# people が空 (デフォルト) のときは何も置かず、既存の動作は変わらない。
-# 戻り値: (配置人数, ループ開始秒, ループ終了秒)。人数はメインループで
-# kit.update() を回すか判断するのに、開始/終了秒はアニメをループ再生させる
-# タイムラインの再生区間 (start_time / end_time) に使う。
-# config_path=None のときは各ローダーが共通の configs/placement.yaml を読む。
+# この実習構成では people は空 (list: []) にしてあるので何も置かれない
+# (呼び出し自体は残してあり、設定に人を書けば動く)。
+# 戻り値: (配置人数, ループ開始秒, ループ終了秒)。
 _num_people, _people_loop_start, _people_loop_end = people_spawn.spawn_people(
-    assets_root_path, kit, config_path=_task_placement_path
+    assets_root_path, kit
 )
 
 # placement.yaml の furniture: セクションに従って「本物のメッシュの家具(机/椅子)」を
-# 配置する。人 (people) と同じく Isaac 公式アセットサーバから取得する。furniture: が
-# 無いタスク (hri/gpsr 等) では何も置かない no-op なので無条件に呼んでよい。
-# 静的 collider を付けるだけで剛体は付けないため、play() の前後どちらでも問題ないが、
-# people と同じく play() 前に置いておく。
-furniture_spawn.spawn_furniture(
-    assets_root_path, kit, config_path=_task_placement_path)
-
-# 独自オブジェクト (usd/my_models) の配置は使わない。
-# 配置は configs/placement.yaml の ycb のみ。戻したいときは下を有効化:
-# # アルボナース
-# drop_object(
-#     gazebo_name='my_object',
-#     name='my_object',
-#     x=-0.26,
-#     y=-0.79097,
-#     z=-1.66326,
-#     roll=math.pi / 2,
-# )
-# # hma宣伝ボード
-# drop_object(
-#     gazebo_name='hma_display_board',
-#     name='hma_display_board',
-#     x=0.8,
-#     y=0.5,
-#     z=0.5,
-#     roll=math.pi / 2,
-# )
+# 配置する。この実習構成では furniture: を書いていないので何も置かない no-op。
+furniture_spawn.spawn_furniture(assets_root_path, kit)
 
 # HSR の初期スポーン位置 (map 座標 = world 座標) は configs/placement.yaml の
 # robot: セクションで定義する (robot/objects/people をまとめた設定ファイル)。
 # 注意: env_furniture の operator_position は「人」の位置であって、ロボットの位置ではない。
 _robot_spawn = {'x': 0.0, 'y': 0.0, 'yaw': 0.0}  # 設定ファイルが無いときのフォールバック
-# どのロボットをスポーンするか (hsrb / hsrc_ex)。`make ros2 up robot=...` が渡す
-# 環境変数 ROBOT で指定する (下で反映)。未指定なら従来どおり hsrb。
-# placement.yaml では指定しない (位置 x/y/yaw のみ使う)。
-_robot_model = 'hsrb'
-# タスク個別の placement.yaml があればそれを優先 (無ければ共通の既定)。
-_spawn_candidates = ([_task_placement_path] if _task_placement_path else []) + [
+_spawn_candidates = [
     '/app/configs/placement.yaml',
     os.path.join(repo_root, 'configs', 'placement.yaml'),
 ]
@@ -606,13 +476,7 @@ if _spawn_path is not None:
 else:
     print(f'[hsr] placement.yaml が無いのでフォールバック値を使用: {_robot_spawn}')
 
-# どのロボットをスポーンするかは `make ros2 up robot=hsrb` が渡す環境変数 ROBOT で決める。
-# 優先順位: 環境変数 ROBOT > 既定 'hsrb'。
-_env_robot = os.environ.get('ROBOT', '').strip()
-if _env_robot:
-    _robot_model = _env_robot
-    print(f'[hsr] model=ROBOT={_env_robot} (make robot= で指定)')
-
+# ロボットは HSR-B (hsrb) 固定。
 hsr_stage_path = '/hsrb'
 create_prim(
     prim_path=hsr_stage_path,
@@ -621,32 +485,16 @@ create_prim(
     orientation=euler_angles_to_quat([0, 0, _robot_spawn['yaw']]),
 )
 
-# model に応じてスポーンするクラスを切り替える。
-#   - hsrc_ex: 新ファイル hsr_hsrc_ex.py (hsr.hsr を継承し差分だけ上書き)
-#   - それ以外(既定): 従来の hsr.hsr (HSR-B)
-if _robot_model == 'hsrc_ex':
-    import hsr_hsrc_ex
+_hsr = hsr.hsr(stage_path=hsr_stage_path)
+model_names.append('hsrb')
 
-    print('[hsr] model=hsrc_ex を使用 (usd/hsrc/hsrc1s.usd)')
-    _hsr = hsr_hsrc_ex.hsr(stage_path=hsr_stage_path)
-else:
-    _hsr = hsr.hsr(stage_path=hsr_stage_path)
-model_names.append(_robot_model)
+import std_msgs.msg
 
-if is_ros2:
-    import std_msgs.msg
-
-    collision_detect_pub = _hsr.ros2node.create_publisher(
-        std_msgs.msg.Bool,
-        '/undesired_contact_detector/detect',
-        qos_profile=rclpy.qos.qos_profile_system_default,
-    )
-else:
-    import std_msgs.msg
-
-    collision_detect_pub = rospy.Publisher(
-        '/undesired_contact_detector/detect', std_msgs.msg.Bool, queue_size=10
-    )
+collision_detect_pub = _hsr.ros2node.create_publisher(
+    std_msgs.msg.Bool,
+    '/undesired_contact_detector/detect',
+    qos_profile=rclpy.qos.qos_profile_system_default,
+)
 
 contact_links = [
     '/hsrb/hsrb/base_link/collisions',
@@ -689,7 +537,9 @@ def contact_report_event(ch, cd):
             if prev_contact != body1:
                 print(f'Contact {body1}')
                 prev_contact = body1
-        if body1 == 'wrc_frame' or body1.startswith('task2a_'):
+        # 壁 (wall_*) にぶつかったら衝突検出トピックに知らせる
+        # (競技の Hit 判定と同じ仕組み)。
+        if body1.startswith('wall_'):
             collision_detect_pub.publish(std_msgs.msg.Bool(data=True))
 
 
@@ -738,36 +588,28 @@ if _num_people > 0:
 
 # ラボ環境テクスチャ (床 + 周囲背景 + 照明) を適用。
 # timeline.play() の "後" でないと PhysX セットアップを壊すので注意。
-# 床・背景幕 (周囲4枚の壁) を world の家具・壁の広がりに合わせて
-# 自動でサイズ・中心を決める。world が原点からずれていても正しく囲める。
-# タスクで dressing の preset/lighting を選んでいれば、それを渡す
-# (未指定なら apply_lab_dressing 側が dressing.yaml の defaults を使う)。
-_dress_kwargs = {}
-if _task_dressing_preset:
-    _dress_kwargs['preset'] = _task_dressing_preset
-if _task_dressing_lighting:
-    _dress_kwargs['lighting'] = _task_dressing_lighting
-_bounds = object_placement.world_xy_bounds(world_file)
-if _bounds is not None:
-    _min_x, _max_x, _min_y, _max_y = _bounds
-    _margin = 0.5  # 外周から壁を少し外に出す余白 (m)
-    _room_size = max(_max_x - _min_x, _max_y - _min_y) + 2.0 * _margin
-    _center_x = (_min_x + _max_x) / 2.0
-    _center_y = (_min_y + _max_y) / 2.0
-    print(
-        f'[dressing] world bounds -> room_size={_room_size:.2f} '
-        f'center=({_center_x:.2f}, {_center_y:.2f})'
-    )
-    construct_environment.apply_lab_dressing(
-        room_size=_room_size,
-        center_x=_center_x,
-        center_y=_center_y,
-        **_dress_kwargs,
-    )
-else:
-    construct_environment.apply_lab_dressing(**_dress_kwargs)
+# 床のサイズ・中心は起動時に計算した _floor_size/_floor_cx/_floor_cy を使う
+# (当たり判定の GroundPlane と同じ大きさ・中心 = 灰色の床がはみ出さない)。
+# preset/lighting は configs/dressing.yaml の defaults がそのまま使われる。
+print(
+    f'[dressing] room_size={_floor_size:.2f} '
+    f'center=({_floor_cx:.2f}, {_floor_cy:.2f})'
+)
+construct_environment.apply_lab_dressing(
+    room_size=_floor_size,
+    center_x=_floor_cx,
+    center_y=_floor_cy,
+)
 for _ in range(3):
     kit.update()
+
+# 競技モードなら 4方向の観戦カメラを作って録画を開始する。
+# (timeline.play() と dressing の後 = シーンが完成した状態で作る)
+_recorder = None
+if TASK_TIME > 0:
+    _recorder = arena_cameras.ArenaRecorder(
+        TASK_TIME, center_x=_floor_cx, center_y=_floor_cy)
+    _recorder.setup()
 
 
 # simulate gazebo ros APIs required for task evaluators
@@ -788,95 +630,74 @@ def get_xform(stage, model_name):
         return Gf.Matrix4d()
 
 
-if is_ros2:
+def handle_get_world_properties_ros2(req, ret):
+    ret.model_names = model_names
+    ret.success = True
+    return ret
 
-    def handle_get_world_properties_ros2(req, ret):
-        ret.model_names = model_names
-        ret.success = True
-        return ret
 
-    def handle_get_model_state_ros2(req, ret):
-        stage = omni.usd.get_context().get_stage()
-        objxform = get_xform(stage, req.model_name)
-        refxform = get_xform(stage, req.relative_entity_name)
-        relpose = objxform * refxform.GetInverse()
-        translation = relpose.ExtractTranslation()
-        rotation = relpose.GetOrthonormalized().ExtractRotationQuat()
-        rotation_imaginary = rotation.GetImaginary()
-        # create response
-        ret.header.frame_id = req.relative_entity_name
-        ret.pose.position.x = translation[0]
-        ret.pose.position.y = translation[1]
-        ret.pose.position.z = translation[2]
-        ret.pose.orientation.x = rotation_imaginary[0]
-        ret.pose.orientation.y = rotation_imaginary[1]
-        ret.pose.orientation.z = rotation_imaginary[2]
-        ret.pose.orientation.w = rotation.GetReal()
-        ret.success = True
-        return ret
+def handle_get_model_state_ros2(req, ret):
+    stage = omni.usd.get_context().get_stage()
+    objxform = get_xform(stage, req.model_name)
+    refxform = get_xform(stage, req.relative_entity_name)
+    relpose = objxform * refxform.GetInverse()
+    translation = relpose.ExtractTranslation()
+    rotation = relpose.GetOrthonormalized().ExtractRotationQuat()
+    rotation_imaginary = rotation.GetImaginary()
+    # create response
+    ret.header.frame_id = req.relative_entity_name
+    ret.pose.position.x = translation[0]
+    ret.pose.position.y = translation[1]
+    ret.pose.position.z = translation[2]
+    ret.pose.orientation.x = rotation_imaginary[0]
+    ret.pose.orientation.y = rotation_imaginary[1]
+    ret.pose.orientation.z = rotation_imaginary[2]
+    ret.pose.orientation.w = rotation.GetReal()
+    ret.success = True
+    return ret
 
-    _hsr.ros2node.create_service(
-        GetWorldProperties,
-        '/gazebo/get_world_properties',
-        handle_get_world_properties_ros2,
-        qos_profile=rclpy.qos.qos_profile_services_default,
-    )
-    _hsr.ros2node.create_service(
-        GetModelState,
-        '/gazebo/get_model_state',
-        handle_get_model_state_ros2,
-        qos_profile=rclpy.qos.qos_profile_services_default,
-    )
 
-    def handle_reset_world_ros2(req, ret):
-        _request_reset_and_wait()
-        return ret
+_hsr.ros2node.create_service(
+    GetWorldProperties,
+    '/gazebo/get_world_properties',
+    handle_get_world_properties_ros2,
+    qos_profile=rclpy.qos.qos_profile_services_default,
+)
+_hsr.ros2node.create_service(
+    GetModelState,
+    '/gazebo/get_model_state',
+    handle_get_model_state_ros2,
+    qos_profile=rclpy.qos.qos_profile_services_default,
+)
 
-    _hsr.ros2node.create_service(
-        EmptySrv,
-        '/isaac/reset_world',
-        handle_reset_world_ros2,
-        qos_profile=rclpy.qos.qos_profile_services_default,
-    )
-else:
 
-    def handle_get_world_properties(req):
-        ret = GetWorldPropertiesResponse()
-        ret.model_names = model_names
-        ret.success = True
-        return ret
+def handle_reset_world_ros2(req, ret):
+    _request_reset_and_wait()
+    return ret
 
-    def handle_get_model_state(req):
-        stage = omni.usd.get_context().get_stage()
-        objxform = get_xform(stage, req.model_name)
-        refxform = get_xform(stage, req.relative_entity_name)
-        relpose = objxform * refxform.GetInverse()
-        translation = relpose.ExtractTranslation()
-        rotation = relpose.GetOrthonormalized().ExtractRotationQuat()
-        rotation_imaginary = rotation.GetImaginary()
-        # create response
-        ret = GetModelStateResponse()
-        ret.header.frame_id = req.relative_entity_name
-        ret.pose.position.x = translation[0]
-        ret.pose.position.y = translation[1]
-        ret.pose.position.z = translation[2]
-        ret.pose.orientation.x = rotation_imaginary[0]
-        ret.pose.orientation.y = rotation_imaginary[1]
-        ret.pose.orientation.z = rotation_imaginary[2]
-        ret.pose.orientation.w = rotation.GetReal()
-        ret.success = True
-        return ret
 
-    rospy.Service('/gazebo/get_world_properties',
-                  GetWorldProperties, handle_get_world_properties)
-    rospy.Service('/gazebo/get_model_state',
-                  GetModelState, handle_get_model_state)
+_hsr.ros2node.create_service(
+    EmptySrv,
+    '/isaac/reset_world',
+    handle_reset_world_ros2,
+    qos_profile=rclpy.qos.qos_profile_services_default,
+)
 
-    def handle_reset_world(req):
-        _request_reset_and_wait()
-        return EmptyResponse()
 
-    rospy.Service('/isaac/reset_world', EmptySrv, handle_reset_world)
+# トピック版リセット。`ros2 topic pub --once /isaac/reset_world_request
+# std_msgs/msg/Empty` の 1 コマンドでリセットできる (サービスと同じ経路)。
+# コールバックはフラグを立てるだけ。実際の復元はメインループが物理ステップ間で行う。
+def handle_reset_world_topic_ros2(_msg):
+    global _reset_requested
+    _reset_requested = True
+
+
+_hsr.ros2node.create_subscription(
+    EmptyMsg,
+    '/isaac/reset_world_request',
+    handle_reset_world_topic_ros2,
+    10,
+)
 
 # reset_world (テレポート) 後に localization スタックを spawn 位置へ復帰させる publisher。
 #   /isaac/reset_world_event : laser_scan_matcher 再起動ヘルパー (別コンテナの ROS ノード)
@@ -974,6 +795,20 @@ while kit.is_running():
         import traceback
 
         traceback.print_exc()
+
+    # --- 競技モード: 観戦カメラで録画し、競技時間が来たら保存して終了する ---
+    if _recorder is not None:
+        try:
+            if _recorder.step(simulation_context.current_time):
+                print('[task] 競技時間終了。動画を保存してシミュレータを終了します。',
+                      flush=True)
+                _recorder.close()
+                _recorder = None
+                break
+        except Exception:
+            import traceback
+
+            traceback.print_exc()
 
     # --- reset_world: サービス要求があれば物理ステップ間でここで適用する ---
     if _reset_requested:
