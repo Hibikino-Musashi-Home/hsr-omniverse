@@ -75,9 +75,9 @@ objects:
     - object: ycb_011_banana      # Room NE
       x: 2.0
       y: 1.6
-    - object: ycb_013_apple       # Room NE (ソファの手前)
-      x: 0.8
-      y: 2.6
+    - object: ycb_013_apple       # ロボット正面0.7m (HSRから少し離した位置)
+      x: 1.9
+      y: 2.0
     - object: ycb_004_sugar_box   # Room SE
       x: 1.6
       y: -1.8
@@ -157,3 +157,12 @@ furniture:
 
 people:
   list: []
+
+
+# (pick検証デモ撮影用の一時設定)
+arena_cameras:
+  center: [2.0, 2.0]
+  distance: 2.6
+  height: 3.6
+  resolution: [960, 720]
+  fps: 15

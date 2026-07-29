@@ -85,6 +85,22 @@ except ValueError:
 if TASK_TIME > 0:
     print(f'[task] 競技モード: {TASK_TIME:.0f} 秒 (シミュレータ内時間) で自動終了・録画あり')
 
+try:
+    RENDER_EVERY_N_STEPS = max(
+        1, int(os.environ.get('RENDER_EVERY_N_STEPS', '4')))
+except ValueError:
+    print(
+        '[render] WARNING: RENDER_EVERY_N_STEPS=%r is invalid; using 4'
+        % os.environ.get('RENDER_EVERY_N_STEPS'),
+        flush=True,
+    )
+    RENDER_EVERY_N_STEPS = 4
+print(
+    '[render] viewport update every %d physics step(s)'
+    % RENDER_EVERY_N_STEPS,
+    flush=True,
+)
+
 viewports.set_camera_view(eye=np.array(
     [3.7, 1.7, 5.0]), target=np.array([0, 0, 0]))
 
@@ -773,6 +789,7 @@ if _lidar_prim.IsValid():
         _draw_attr.Set(False)
         print(f'[sample-ros] disable showing lidar beam: {_lidar_path}')
 
+_physics_step_index = 0
 while kit.is_running():
     # Run with a fixed step size
     if _num_people > 0:
@@ -784,8 +801,12 @@ while kit.is_running():
         simulation_context.step(render=False)
         kit.update()
     else:
-        # 人が居ないときは従来どおり (描画つき物理ステップのみ)。
-        simulation_context.step(render=True)
+        # Physics and whole-body control remain at 60 Hz.  Rendering the Kit
+        # viewport and four camera products at the same rate made simulation
+        # time run much slower than wall time, so only render every Nth step.
+        simulation_context.step(
+            render=(_physics_step_index % RENDER_EVERY_N_STEPS == 0))
+    _physics_step_index += 1
     try:
         _hsr.step()
     except Exception:

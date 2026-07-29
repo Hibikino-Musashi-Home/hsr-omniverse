@@ -5,6 +5,7 @@
 
 from typing import List, Any
 
+import math
 import time
 import json
 import asyncio
@@ -63,6 +64,10 @@ class RosControlFollowJointTrajectory(RosController):
     # /controller_state msg to the joints the consumer expects (pumas
     # arm_node segfaults when actual.positions oversized).
     controlled_joints = None
+    goal_position_tolerance = None
+    goal_velocity_tolerance = None
+    goal_settle_duration = 0.0
+    goal_timeout = 0.0
 
     def __init__(self,
                  node: Node,
@@ -88,6 +93,10 @@ class RosControlFollowJointTrajectory(RosController):
         self._action_goal_handle = None
         self._action_start_time = None
         self._action_point_index = 1
+        self._goal_wait_start_time = None
+        self._goal_settle_start_time = None
+        self._joint_velocity_samples = {}
+        self._joint_velocity_filter_tau = 0.05
 
         # feedback / result
         self._action_result_message = None
@@ -247,6 +256,7 @@ class RosControlFollowJointTrajectory(RosController):
             target_position /= get_stage_units()
         # set target position
         self.dci.set_dof_position_target(self._joints[name]["dof"], target_position)
+        self.dci.set_dof_velocity_target(self._joints[name]["dof"], 0.0)
 
     def _get_joint_position(self, name: str) -> float:
         """Get the current position of a joint in the articulation
@@ -261,6 +271,113 @@ class RosControlFollowJointTrajectory(RosController):
         if self._joints[name]["type"] == _dynamic_control.JOINT_PRISMATIC:
             return position * get_stage_units()
         return position
+
+    def _get_joint_velocity(self, name: str) -> float:
+        # Isaac Sim 4.5 dynamic-control can report a constant non-zero DOF
+        # velocity while the corresponding position is motionless (observed
+        # on HSR's inverted arm joints).  Derive velocity from position and
+        # simulation time so action tolerances describe visible motion.
+        now = self._node.get_clock().now().nanoseconds / 1e9
+        position = self._get_joint_position(name)
+        previous = self._joint_velocity_samples.get(name)
+        if previous is None:
+            self._joint_velocity_samples[name] = (now, position, 0.0)
+            return 0.0
+        previous_time, previous_position, previous_velocity = previous
+        dt = now - previous_time
+        if dt <= 1e-9:
+            return previous_velocity
+        position_delta = position - previous_position
+        if self._joints[name]["type"] == _dynamic_control.JOINT_REVOLUTE:
+            position_delta = math.atan2(
+                math.sin(position_delta),
+                math.cos(position_delta),
+            )
+        raw_velocity = position_delta / dt
+        alpha = min(
+            1.0,
+            dt / (self._joint_velocity_filter_tau + dt),
+        )
+        velocity = previous_velocity + alpha * (
+            raw_velocity - previous_velocity)
+        self._joint_velocity_samples[name] = (now, position, velocity)
+        return velocity
+
+    @staticmethod
+    def _joint_tolerance(tolerance, name):
+        if isinstance(tolerance, dict):
+            return tolerance.get(name)
+        return tolerance
+
+    def _check_goal_convergence(self):
+        if (
+            self._action_goal_handle is None
+            or self.goal_position_tolerance is None
+            or self.goal_velocity_tolerance is None
+        ):
+            return "succeeded", ""
+
+        now = self._node.get_clock().now().nanoseconds / 1e9
+        if self._goal_wait_start_time is None:
+            self._goal_wait_start_time = now
+
+        final_point = self._action_goal.trajectory.points[-1]
+        position_errors = {}
+        velocities = {}
+        settled = True
+        for index, name in enumerate(
+            self._action_goal.trajectory.joint_names
+        ):
+            if index >= len(final_point.positions):
+                continue
+            position_error = (
+                final_point.positions[index]
+                - self._get_joint_position(name)
+            )
+            velocity = self._get_joint_velocity(name)
+            position_errors[name] = position_error
+            velocities[name] = velocity
+            position_tolerance = self._joint_tolerance(
+                self.goal_position_tolerance, name)
+            velocity_tolerance = self._joint_tolerance(
+                self.goal_velocity_tolerance, name)
+            if (
+                position_tolerance is None
+                or velocity_tolerance is None
+                or abs(position_error) > position_tolerance
+                or abs(velocity) > velocity_tolerance
+            ):
+                settled = False
+
+        if settled:
+            if self._goal_settle_start_time is None:
+                self._goal_settle_start_time = now
+            if now - self._goal_settle_start_time >= self.goal_settle_duration:
+                return "succeeded", ""
+        else:
+            self._goal_settle_start_time = None
+
+        if now - self._goal_wait_start_time < self.goal_timeout:
+            return "waiting", ""
+
+        worst_position = max(
+            position_errors.items(), key=lambda item: abs(item[1]))
+        worst_velocity = max(
+            velocities.items(), key=lambda item: abs(item[1]))
+        detail = (
+            "goal did not settle: position %s=%+.4f, velocity %s=%+.4f"
+            % (
+                worst_position[0],
+                worst_position[1],
+                worst_velocity[0],
+                worst_velocity[1],
+            )
+        )
+        return "aborted", detail
+
+    def _reset_goal_convergence(self) -> None:
+        self._goal_wait_start_time = None
+        self._goal_settle_start_time = None
 
     def _on_handle_accepted(self, goal_handle: 'rclpy.action.server.ServerGoalHandle') -> None:
         """Callback function for handling newly accepted goals
@@ -316,6 +433,7 @@ class RosControlFollowJointTrajectory(RosController):
                     self._get_joint_position(name)
                     for name in goal.trajectory.joint_names
                 ],
+                velocities=[0.0] * len(goal.trajectory.joint_names),
                 time_from_start=Duration().to_msg(),
             )
             goal.trajectory.points.insert(0, initial_point)
@@ -325,6 +443,7 @@ class RosControlFollowJointTrajectory(RosController):
         self._action_start_time = None
         self._action_result_message = None
         self._action_point_index = 1
+        self._reset_goal_convergence()
 
         # store goal data
         self._action_goal = goal
@@ -369,9 +488,10 @@ class RosControlFollowJointTrajectory(RosController):
         # 1 s pad → ~10% progress per cycle; pumas arm_node with 0.2 s →
         # ~50% per cycle), which makes the joint barely track the stream.
         # time_from_start on a single point is only a deadline hint, not a
-        # forced interpolation duration.
+        # forced interpolation duration.  The HSR owner wakes its articulation
+        # once per simulation step; waking this controller's independently
+        # cached handle is both redundant and invalid for virtual odom joints.
         if len(msg.points) == 1:
-            self.dci.wake_up_articulation(self._articulation)
             point = msg.points[0]
             for i, name in enumerate(msg.joint_names):
                 if i < len(point.positions):
@@ -384,6 +504,7 @@ class RosControlFollowJointTrajectory(RosController):
             positions=[
                 self._get_joint_position(name) for name in msg.joint_names
             ],
+            velocities=[0.0] * len(msg.joint_names),
             time_from_start=Duration().to_msg(),
         )
         msg.points.insert(0, initial_point)
@@ -393,6 +514,7 @@ class RosControlFollowJointTrajectory(RosController):
         self._action_start_time = self._node.get_clock().now().nanoseconds / 1e9
         self._action_result_message = None
         self._action_point_index = 1
+        self._reset_goal_convergence()
         self._action_goal = goal
         # _action_goal_handle stays None -> step() treats this as topic mode
 
@@ -412,6 +534,7 @@ class RosControlFollowJointTrajectory(RosController):
         self._action_goal_handle = None
         self._action_start_time = None
         self._action_result_message = None
+        self._reset_goal_convergence()
         goal_handle.destroy()
         return CancelResponse.ACCEPT
 
@@ -462,57 +585,123 @@ class RosControlFollowJointTrajectory(RosController):
             self._action_dt = dt
             # end of trajectory
             if self._action_point_index >= len(self._action_goal.trajectory.points):
-                handle = self._action_goal_handle
-                self._action_goal = None
-                self._action_result_message = FollowJointTrajectory.Result()
-                self._action_result_message.error_code = self._action_result_message.SUCCESSFUL
-                if handle is not None:
-                    try:
-                        handle.succeed()
-                    except Exception:
-                        pass
+                convergence, detail = self._check_goal_convergence()
+                if convergence != "waiting":
+                    handle = self._action_goal_handle
+                    self._action_goal = None
+                    # 結果メッセージを先に公開すると _on_execute (executor
+                    # スレッド) が即座に return し、rclpy 側が「終了状態が未設定」
+                    # と判断して abort を呼ぶ。こちらの abort と競合して
+                    # 「invalid transition」例外になり、ROS スレッドごと落ちて
+                    # 全アクションが永久に無応答になる。必ず終了状態を先に
+                    # 確定させてから結果を公開する。
+                    result = FollowJointTrajectory.Result()
+                    if convergence == "succeeded":
+                        result.error_code = result.SUCCESSFUL
+                        if handle is not None and handle.is_active:
+                            try:
+                                handle.succeed()
+                            except Exception:
+                                pass
+                    else:
+                        result.error_code = result.GOAL_TOLERANCE_VIOLATED
+                        result.error_string = detail
+                        print(
+                            "[trajectory-action] " + detail,
+                            flush=True,
+                        )
+                        if handle is not None and handle.is_active:
+                            try:
+                                handle.abort()
+                            except Exception:
+                                pass
+                    self._action_result_message = result
                     self._action_goal_handle = None
-                return
-
-            previous_point = self._action_goal.trajectory.points[self._action_point_index - 1]
-            current_point = self._action_goal.trajectory.points[self._action_point_index]
-            if self._action_start_time is None:
-                # 開始時刻未設定のまま物理ステップが先行するレースのガード
-                self._action_start_time = self._node.get_clock().now().nanoseconds / 1e9
-            time_passed = self._node.get_clock().now().nanoseconds / 1e9 - self._action_start_time
-
-            # set target using linear interpolation
-            if time_passed <= self._duration_to_seconds(current_point.time_from_start):
-                ratio = (time_passed - self._duration_to_seconds(previous_point.time_from_start)) \
-                      / (self._duration_to_seconds(current_point.time_from_start) \
-                          - self._duration_to_seconds(previous_point.time_from_start))
-                self.dci.wake_up_articulation(self._articulation)
-                for i, name in enumerate(self._action_goal.trajectory.joint_names):
-                    side = -1 if current_point.positions[i] < previous_point.positions[i] else 1
-                    target_position = previous_point.positions[i] \
-                                    + side * ratio * abs(current_point.positions[i] - previous_point.positions[i])
-                    self._set_joint_position(name, target_position)
-            # send feedback
+                    self._reset_goal_convergence()
+                    return
             else:
-                self._action_point_index += 1
-                # set joint targets for the new current point when advancing the index
-                if self._action_point_index < len(self._action_goal.trajectory.points):
-                    new_point = self._action_goal.trajectory.points[self._action_point_index]
-                    self.dci.wake_up_articulation(self._articulation)
-                    for i, name in enumerate(self._action_goal.trajectory.joint_names):
-                        if i < len(new_point.positions):
-                            target_position = new_point.positions[i]
-                            self._set_joint_position(name, target_position)
-                # feedback only when an action handle is attached
-                if self._action_goal_handle is not None:
-                    self._action_feedback_message.joint_names = list(self._action_goal.trajectory.joint_names)
-                    self._action_feedback_message.actual.positions = [self._get_joint_position(name) \
-                        for name in self._action_goal.trajectory.joint_names]
-                    self._action_feedback_message.actual.time_from_start = Duration(seconds=time_passed).to_msg()
-                    try:
-                        self._action_goal_handle.publish_feedback(self._action_feedback_message)
-                    except Exception:
-                        pass
+                previous_point = self._action_goal.trajectory.points[
+                    self._action_point_index - 1]
+                current_point = self._action_goal.trajectory.points[
+                    self._action_point_index]
+                if self._action_start_time is None:
+                    # 開始時刻未設定のまま物理ステップが先行するレースのガード
+                    self._action_start_time = (
+                        self._node.get_clock().now().nanoseconds / 1e9)
+                time_passed = (
+                    self._node.get_clock().now().nanoseconds / 1e9
+                    - self._action_start_time
+                )
+
+                # Interpolate the active segment.  MoveIt supplies endpoint
+                # velocities, so use cubic Hermite interpolation when available
+                # to keep target velocity continuous across trajectory points.
+                if time_passed <= self._duration_to_seconds(
+                    current_point.time_from_start
+                ):
+                    previous_time = self._duration_to_seconds(
+                        previous_point.time_from_start)
+                    current_time = self._duration_to_seconds(
+                        current_point.time_from_start)
+                    segment_duration = current_time - previous_time
+                    ratio = 1.0 if segment_duration <= 0.0 else min(
+                        1.0,
+                        max(0.0, (time_passed - previous_time) /
+                            segment_duration),
+                    )
+                    for i, name in enumerate(
+                        self._action_goal.trajectory.joint_names
+                    ):
+                        previous_position = previous_point.positions[i]
+                        current_position = current_point.positions[i]
+                        if (
+                            segment_duration > 0.0 and
+                            i < len(previous_point.velocities) and
+                            i < len(current_point.velocities)
+                        ):
+                            ratio2 = ratio * ratio
+                            ratio3 = ratio2 * ratio
+                            target_position = (
+                                (2.0 * ratio3 - 3.0 * ratio2 + 1.0) *
+                                previous_position
+                                + (ratio3 - 2.0 * ratio2 + ratio) *
+                                segment_duration *
+                                previous_point.velocities[i]
+                                + (-2.0 * ratio3 + 3.0 * ratio2) *
+                                current_position
+                                + (ratio3 - ratio2) * segment_duration *
+                                current_point.velocities[i]
+                            )
+                        else:
+                            target_position = previous_position + ratio * (
+                                current_position - previous_position)
+                        self._set_joint_position(name, target_position)
+                else:
+                    # Finish the current segment exactly.  The old code
+                    # advanced the index first and wrote the next point for one
+                    # frame, then interpolated back near the current point.
+                    for i, name in enumerate(
+                        self._action_goal.trajectory.joint_names
+                    ):
+                        if i < len(current_point.positions):
+                            self._set_joint_position(
+                                name, current_point.positions[i])
+                    self._action_point_index += 1
+                    if self._action_goal_handle is not None:
+                        self._action_feedback_message.joint_names = list(
+                            self._action_goal.trajectory.joint_names)
+                        self._action_feedback_message.actual.positions = [
+                            self._get_joint_position(name)
+                            for name in
+                            self._action_goal.trajectory.joint_names
+                        ]
+                        self._action_feedback_message.actual.time_from_start = (
+                            Duration(seconds=time_passed).to_msg())
+                        try:
+                            self._action_goal_handle.publish_feedback(
+                                self._action_feedback_message)
+                        except Exception:
+                            pass
         # publish controller state for this timestep
         if self._state_pub is not None:
             msg = JointTrajectoryControllerState()
@@ -537,10 +726,7 @@ class RosControlFollowJointTrajectory(RosController):
                     pos = 0.0
                 actual_positions.append(pos)
                 try:
-                    vel = self.dci.get_dof_state(
-                        self._joints[name]["dof"],
-                        _dynamic_control.STATE_VEL,
-                    ).vel
+                    vel = self._get_joint_velocity(name)
                 except Exception:
                     vel = 0.0
                 actual_velocities.append(vel)

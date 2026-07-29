@@ -112,7 +112,13 @@ class ArenaRecorder:
                  out_root: str = "/recordings"):
         cfg = _load_config()
         self.task_time = float(task_time_sec)
-        self.center = (center_x, center_y)
+        # 注視点: 既定は床の中心 (呼び出し側から渡される)。config の center:
+        # [x, y] で特定の部屋に寄せられる (デモで pick&place の部屋を狙う用)。
+        _c = cfg.get("center")
+        if _c and len(_c) >= 2:
+            self.center = (float(_c[0]), float(_c[1]))
+        else:
+            self.center = (center_x, center_y)
         self.out_root = out_root
         self.distance = float(cfg.get("distance", 6.5))
         self.height = float(cfg.get("height", 4.5))

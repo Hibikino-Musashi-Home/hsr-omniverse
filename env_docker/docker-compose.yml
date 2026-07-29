@@ -17,10 +17,17 @@ services:
       - DISPLAY
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=graphics
+      - __GLX_VENDOR_LIBRARY_NAME=nvidia
+      - QT_X11_NO_MITSHM=1
       - CYCLONEDDS_URI=${CYCLONEDDS_URI:-file:///cyclonedds.xml}
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
     volumes:
       - ../launch/hsr.launch.py:/hsr.launch.py:ro
+      # 制御指示のサンプルコード (実習用)。編集が即反映されるよう live マウント
+      - ../examples:/examples:ro
+      - ../assets/moveit-no-octomap.rviz:/ws/install/hsrb_moveit_config/share/hsrb_moveit_config/config/moveit.rviz:ro
+      - ../assets/joint_limits-smooth.yaml:/ws/install/hsrb_moveit_config/share/hsrb_moveit_config/config/joint_limits.yaml:ro
+    command: ["ros2", "launch", "/hsr.launch.py", "use_rviz:=${USE_RVIZ:-false}"]
     security_opt:
       - seccomp:unconfined
   cacheproxy:
@@ -51,6 +58,51 @@ services:
       - HSR_ROS_VERSION=2
       # 競技モード: `make up TIME=600` で競技時間 (秒) が渡る。空なら通常モード。
       - TASK_TIME=${TASK_TIME:-}
+      # アタッチ把持(吸い付き)。`make up GRASP=0` で無効化=物理接触のみで把持。
+      - GRASP_ATTACH=${GRASP_ATTACH:-1}
+      # MoveIt whole_body の台車追従。必要なら make up BASE_TRAJ_P_GAIN=1.0 などで調整。
+      - BASE_DIRECT_DRIVE=${BASE_DIRECT_DRIVE:-1}
+      - BASE_TRAJ_P_GAIN=${BASE_TRAJ_P_GAIN:-2.0}
+      - BASE_TRAJ_D_GAIN=${BASE_TRAJ_D_GAIN:-0.5}
+      - BASE_TRAJ_I_GAIN=${BASE_TRAJ_I_GAIN:-4.0}
+      - BASE_TRAJ_I_LINEAR_LIMIT=${BASE_TRAJ_I_LINEAR_LIMIT:-0.08}
+      - BASE_TRAJ_I_ANGULAR_LIMIT=${BASE_TRAJ_I_ANGULAR_LIMIT:-0.15}
+      - BASE_CMD_TAU=${BASE_CMD_TAU:-0.10}
+      - BASE_WHEEL_ACCEL_LIMIT=${BASE_WHEEL_ACCEL_LIMIT:-41.7}
+      - BASE_STEER_ACCEL_LIMIT=${BASE_STEER_ACCEL_LIMIT:-5.0}
+      - BASE_LINEAR_ACCEL_LIMIT=${BASE_LINEAR_ACCEL_LIMIT:-0.35}
+      - BASE_ANGULAR_ACCEL_LIMIT=${BASE_ANGULAR_ACCEL_LIMIT:-0.8}
+      - BASE_WHEEL_DRIVE_DAMPING=${BASE_WHEEL_DRIVE_DAMPING:-10.0}
+      - BASE_WHEEL_DRIVE_MAX_FORCE=${BASE_WHEEL_DRIVE_MAX_FORCE:-10.0}
+      - BASE_STEER_DRIVE_DAMPING=${BASE_STEER_DRIVE_DAMPING:-5.0}
+      - BASE_STEER_DRIVE_MAX_FORCE=${BASE_STEER_DRIVE_MAX_FORCE:-5.0}
+      - BASE_DIRECT_JOINT_DAMPING=${BASE_DIRECT_JOINT_DAMPING:-1.0}
+      - BASE_DIRECT_JOINT_MAX_FORCE=${BASE_DIRECT_JOINT_MAX_FORCE:-1.0}
+      - BASE_DIRECT_ROOT_DAMPING=${BASE_DIRECT_ROOT_DAMPING:-2.0}
+      # 駐車ブレーキ: 静止中は planar joint のバネで台車を保持し、腕の反動で
+      # 流されないようにする。`make up BASE_BRAKE=0` で無効化。
+      - BASE_BRAKE=${BASE_BRAKE:-1}
+      - BASE_BRAKE_ENGAGE_LINEAR=${BASE_BRAKE_ENGAGE_LINEAR:-0.05}
+      - BASE_BRAKE_ENGAGE_ANGULAR=${BASE_BRAKE_ENGAGE_ANGULAR:-0.10}
+      - BASE_BRAKE_CREEP_SPEED=${BASE_BRAKE_CREEP_SPEED:-0.05}
+      - BASE_BRAKE_CREEP_ANGULAR=${BASE_BRAKE_CREEP_ANGULAR:-0.15}
+      - BASE_BRAKE_K=${BASE_BRAKE_K:-200000}
+      - BASE_BRAKE_C=${BASE_BRAKE_C:-20000}
+      - BASE_BRAKE_MAX_FORCE=${BASE_BRAKE_MAX_FORCE:-20000}
+      - BASE_BRAKE_ANGULAR_K=${BASE_BRAKE_ANGULAR_K:-50000}
+      - BASE_BRAKE_ANGULAR_C=${BASE_BRAKE_ANGULAR_C:-5000}
+      - BASE_BRAKE_MAX_TORQUE=${BASE_BRAKE_MAX_TORQUE:-5000}
+      - BASE_PHYSICS_REPORT=${BASE_PHYSICS_REPORT:-1}
+      - BASE_SETPOINT_MAX_LAG=${BASE_SETPOINT_MAX_LAG:-0.02}
+      - BASE_SETPOINT_MAX_LAG_ANGULAR=${BASE_SETPOINT_MAX_LAG_ANGULAR:-0.05}
+      - BASE_GOAL_VELOCITY_TOLERANCE=${BASE_GOAL_VELOCITY_TOLERANCE:-0.10}
+      - BASE_JOINT_BRAKE=${BASE_JOINT_BRAKE:-1}
+      - OBJECT_POSE_REPORT=${OBJECT_POSE_REPORT:-1}
+      - BASE_DIAG=${BASE_DIAG:-0}
+      # 60 Hz物理は維持し、4系統のカメラだけ既定5 Hz (2描画フレームskip)にする。
+      - CAMERA_FRAME_SKIP=${CAMERA_FRAME_SKIP:-2}
+      # Isaacの画面描画は既定15 Hz。物理・whole-body制御と/clockは60 Hzのまま。
+      - RENDER_EVERY_N_STEPS=${RENDER_EVERY_N_STEPS:-4}
       - CYCLONEDDS_URI=${CYCLONEDDS_URI:-file:///cyclonedds.xml}
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
     volumes:
