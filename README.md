@@ -7,23 +7,20 @@
 ```bash
 make build          # イメージをビルド (初回のみ)
 make up             # シミュレータ起動
-make up TIME=600    # 競技モード: 600秒(シミュ内時間)で自動終了。
-                    # 4方向カメラの映像を1本に合成した動画が
-                    # recordings/日付_時刻/arena.mp4 に保存される
+make up TIME=600    # 競技モード: 600秒(シミュ内時間)で自動終了し、録画を保存
 make tune           # 録画カメラ4台の位置・画角を GUI で見ながら調整する
 make down           # 停止
 make ros            # ros2 コンテナに入る (ros2 topic list など)
 ```
 
-## 録画カメラの調整 (`make tune`)
+## 録画の保存先
 
-競技モードの4方向カメラの位置・画角は `configs/placement.yaml` の
-`arena_cameras:` で決まる。`make tune` で起動すると録画せずにカメラだけ作られ、
-Isaac Sim の Viewport でカメラを選んで動かしながら調整できる。
+`make up TIME=<秒>` の競技モードでは、タスク終了時 (指定した時間が来た時) に
+4方向カメラの映像を 2x2 に合成した動画が保存される。
 
-動かすたびに次の2つが書き出される。
+```
+recordings/<日付_時刻>/arena.mp4      例: recordings/20260729_154230/arena.mp4
+```
 
-- `recordings/tune/arena_cameras.yaml` … そのまま `placement.yaml` に貼れる設定
-- `recordings/tune/preview.png` … 実際に録画される 2x2 の絵
-
-設定の書きかたは `configs/placement.yaml` のコメントを参照。
+日付・時刻は起動した時刻。実行のたびに新しいフォルダが作られるので、
+過去の録画が上書きされることはない。
