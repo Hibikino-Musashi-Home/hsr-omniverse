@@ -85,6 +85,18 @@ except ValueError:
 if TASK_TIME > 0:
     print(f'[task] 競技モード: {TASK_TIME:.0f} 秒 (シミュレータ内時間) で自動終了・録画あり')
 
+# ============================================================
+# カメラ調整モード (CAMERA_TUNE 環境変数)
+# ============================================================
+# `make tune` で有効になる。観戦カメラ 4 台だけ作り、録画も自動終了もしない。
+# GUI で位置・画角をいじると recordings/tune/ に設定 yaml とプレビュー画像が
+# 書き出されるので、それを configs/placement.yaml に貼って確定させる。
+CAMERA_TUNE = os.environ.get('CAMERA_TUNE', '').strip().lower() in (
+    '1', 'true', 'yes', 'on')
+if CAMERA_TUNE and TASK_TIME > 0:
+    print('[task] CAMERA_TUNE=1 のため競技モード(録画)は無効にします。', flush=True)
+    TASK_TIME = 0.0
+
 try:
     RENDER_EVERY_N_STEPS = max(
         1, int(os.environ.get('RENDER_EVERY_N_STEPS', '4')))
@@ -627,6 +639,13 @@ if TASK_TIME > 0:
         TASK_TIME, center_x=_floor_cx, center_y=_floor_cy)
     _recorder.setup()
 
+# 調整モードなら同じカメラを作るだけ (録画なし・時間制限なし)。
+_tuner = None
+if CAMERA_TUNE:
+    _tuner = arena_cameras.ArenaCameraTuner(
+        center_x=_floor_cx, center_y=_floor_cy)
+    _tuner.setup()
+
 
 # simulate gazebo ros APIs required for task evaluators
 def get_xform(stage, model_name):
@@ -826,6 +845,15 @@ while kit.is_running():
                 _recorder.close()
                 _recorder = None
                 break
+        except Exception:
+            import traceback
+
+            traceback.print_exc()
+
+    # --- 調整モード: GUI で動かしたカメラの値を recordings/tune/ に書き出す ---
+    if _tuner is not None:
+        try:
+            _tuner.step()
         except Exception:
             import traceback
 

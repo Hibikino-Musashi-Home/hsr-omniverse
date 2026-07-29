@@ -159,10 +159,56 @@ people:
   list: []
 
 
-# (pick検証デモ撮影用の一時設定)
+# ============================================================
+# arena_cameras: 競技録画用の観戦カメラ 4台 (北/南/東/西)
+# ============================================================
+# `make up TIME=600` のときだけ作られ、4画面を2x2に並べた mp4 を
+# recordings/ に保存する。
+#
+# 位置や画角を変えたいときは `make tune` で GUI を見ながら調整できる。
+# 動かすと recordings/tune/arena_cameras.yaml に新しい設定が、
+# recordings/tune/preview.png に実際に録画される絵が書き出されるので、
+# その arena_cameras: ブロックをここに貼り替えればよい。
+#
+# 書きかたは 2 通り:
+#  (A) まとめて自動配置 … center のまわりに distance / height で 4方向に置く
+#  (B) 1台ずつ指定     … cameras: を書く (あると A より優先。make tune の出力形式)
+#        cameras:
+#          north: {position: [2.0, 4.6, 3.6], look_at: [2.0, 2.0, 0.3]}
+#          ...
+#
+# fov_deg は画角 (水平方向の視野角, 度)。大きいほど広く写る。
+# focal_length (mm) でも書けるが、両方あれば fov_deg が優先される。
+
+# 2026-07-29 に `make tune` で GUI を見ながら調整した位置。
 arena_cameras:
-  center: [2.0, 2.0]
-  distance: 2.6
-  height: 3.6
   resolution: [960, 720]
   fps: 15
+  look_height: 0.3   # 見る点の高さ (床から m)。次回 make tune するときの基準
+
+  # 自動配置の予備値。下の cameras: がある間は使われないが、
+  # cameras: を丸ごと消すとこちらに戻る。
+  center: [2.0, 2.0]
+  distance: 2.6      # 中心からの水平距離 (m)
+  height: 3.6        # カメラの高さ (m)
+  fov_deg: 70        # 画角 (度)
+
+  # 1台ずつ置いた4台 (position から look_at を見る)。
+  # このブロックがあると center/distance/height は使われない。
+  cameras:
+    north:
+      position: [-1.791, 5.156, 4.142]
+      look_at: [-1.791, 2.129, 0.300]
+      fov_deg: 70.0
+    south:
+      position: [1.961, -5.104, 3.881]
+      look_at: [1.961, -2.282, 0.300]
+      fov_deg: 70.0
+    east:
+      position: [-2.050, 2.230, 3.181]
+      look_at: [2.158, 2.085, 0.300]
+      fov_deg: 70.0
+    west:
+      position: [1.571, -2.260, 3.969]
+      look_at: [-2.250, -2.211, 0.300]
+      fov_deg: 70.0
