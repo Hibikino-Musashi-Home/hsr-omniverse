@@ -592,6 +592,14 @@ _BASE_ANGULAR_ACCEL_LIMIT = max(
     0.0, _env_float('BASE_ANGULAR_ACCEL_LIMIT', 0.8))
 _BASE_WHEEL_DRIVE_DAMPING = max(
     0.0, _env_float('BASE_WHEEL_DRIVE_DAMPING', 10.0))
+# キャスター(受動輪)の転がり軸の粘性摩擦。0 だと軸受けが完全に無摩擦になり、
+# 台車が動いたときに床の摩擦で回されたキャスターが、台車が止まった後も
+# 慣性で永久に回り続ける (実測: 20秒間 10.06 rad/s から 1e-4 も減らない)。
+# 実物の軸受けと同じように減速させるための小さな値。
+# BASE_DIRECT_DRIVE=1 (既定) では台車は直接駆動なので走行に影響しないが、
+# BASE_DIRECT_DRIVE=0 (物理車輪駆動) では走行抵抗になるので控えめにする。
+_BASE_PASSIVE_WHEEL_DAMPING = max(
+    0.0, _env_float('BASE_PASSIVE_WHEEL_DAMPING', 0.001))
 _BASE_WHEEL_DRIVE_MAX_FORCE = max(
     0.0, _env_float('BASE_WHEEL_DRIVE_MAX_FORCE', 10.0))
 _BASE_STEER_DRIVE_DAMPING = max(
@@ -2238,7 +2246,9 @@ class hsr:
             ),
             'angular',
         )
-        left_passive1_drive.GetDampingAttr().Set(0)
+        # 転がり軸: damping=0 だと止まらなくなるので小さな粘性摩擦を入れる
+        # (詳細は _BASE_PASSIVE_WHEEL_DAMPING の定義箇所のコメント)。
+        left_passive1_drive.GetDampingAttr().Set(_BASE_PASSIVE_WHEEL_DAMPING)
         left_passive1_drive.GetStiffnessAttr().Set(0)
 
         left_passive2_drive = UsdPhysics.DriveAPI.Get(
@@ -2249,6 +2259,7 @@ class hsr:
             ),
             'angular',
         )
+        # 旋回軸: 実測で正しく減衰して止まるので無摩擦のままにする
         left_passive2_drive.GetDampingAttr().Set(0)
         left_passive2_drive.GetStiffnessAttr().Set(0)
 
@@ -2260,7 +2271,9 @@ class hsr:
             ),
             'angular',
         )
-        right_passive1_drive.GetDampingAttr().Set(0)
+        # 転がり軸: damping=0 だと止まらなくなるので小さな粘性摩擦を入れる
+        # (詳細は _BASE_PASSIVE_WHEEL_DAMPING の定義箇所のコメント)。
+        right_passive1_drive.GetDampingAttr().Set(_BASE_PASSIVE_WHEEL_DAMPING)
         right_passive1_drive.GetStiffnessAttr().Set(0)
 
         right_passive2_drive = UsdPhysics.DriveAPI.Get(
@@ -2271,6 +2284,7 @@ class hsr:
             ),
             'angular',
         )
+        # 旋回軸: 実測で正しく減衰して止まるので無摩擦のままにする
         right_passive2_drive.GetDampingAttr().Set(0)
         right_passive2_drive.GetStiffnessAttr().Set(0)
 
