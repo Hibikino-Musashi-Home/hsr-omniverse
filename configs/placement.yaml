@@ -29,9 +29,9 @@
 #   yaw  : 向き (rad)。0=+X方向, 1.57≈+Y, 3.14≈-X, -1.57≈-Y。
 
 robot:
-  x: 1.2
-  y: 2.0
-  yaw: 0.0    # Room NE で本棚の方 (+X) を向く
+  x: -1.6
+  y: 4.4
+  yaw: -1.501    # Room NE で本棚の方 (+X) を向く
 
 
 # ============================================================
@@ -184,14 +184,6 @@ people:
 arena_cameras:
   resolution: [960, 720]
   fps: 15
-  look_height: 0.3   # 見る点の高さ (床から m)。次回 make tune するときの基準
-
-  # 自動配置の予備値。下の cameras: がある間は使われないが、
-  # cameras: を丸ごと消すとこちらに戻る。
-  center: [2.0, 2.0]
-  distance: 2.6      # 中心からの水平距離 (m)
-  height: 3.6        # カメラの高さ (m)
-  fov_deg: 70        # 画角 (度)
 
   # 1台ずつ置いた4台 (position から look_at を見る)。
   # このブロックがあると center/distance/height は使われない。
