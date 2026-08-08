@@ -61,6 +61,18 @@ def declare_arguments():
             description='Launch joystick teleop logic (joystick_control + pseudo controllers).',
         )
     )
+    # RGB-D の compressed/compressedDepth を作る中継ノードを起動するか。既定 true。
+    # Isaac は raw の Image しか出さないが、実機の HSR は image_transport 経由で
+    # /compressed・/compressedDepth も出す。消費側 (hma_pcl_reconst2 の use_compressed=true,
+    # openmm/mmpose 等) はそちらを購読するので、sim でも同じ topic 構成を再現する。
+    # これを false にすると /head_rgbd_sensor/reconsted/points が出なくなる。
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            'use_rgbd_republisher',
+            default_value='true',
+            description='Publish compressed RGB-D topics (pcl_reconst / openmm) via one republisher.',
+        )
+    )
     return declared_arguments
 
 
@@ -299,6 +311,31 @@ def generate_launch_description():
 
     launch_dir = os.path.dirname(os.path.abspath(__file__))
 
+    # RGB-D の compressed/compressedDepth を作る中継ノード。入力(生Image)→出力
+    # (CompressedImage) のマッピングはスクリプト側 DEFAULT_MAPPINGS に集約してあり、
+    # 実在する入力だけが流れる(無い入力は無出力)。
+    local_rgbd_republisher = os.path.join(
+        os.path.dirname(launch_dir),
+        'scripts',
+        'rgbd_republisher.py',
+    )
+    rgbd_republisher_script = (
+        local_rgbd_republisher
+        if os.path.exists(local_rgbd_republisher)
+        else '/rgbd_republisher.py'
+    )
+    rgbd_republisher = ExecuteProcess(
+        cmd=[
+            'python3',
+            rgbd_republisher_script,
+            '--ros-args',
+            '-p',
+            'use_sim_time:=true',
+        ],
+        output='screen',
+        condition=IfCondition(args['use_rgbd_republisher']),
+    )
+
     laser_scan_matcher = Node(
         package='ros2_laser_scan_matcher',
         executable='laser_scan_matcher',
@@ -372,6 +409,7 @@ def generate_launch_description():
 
     nodes = [
         relay_node,
+        rgbd_republisher,
         laser_scan_matcher,
         reset_world_matcher_helper,
         sensor_frames,

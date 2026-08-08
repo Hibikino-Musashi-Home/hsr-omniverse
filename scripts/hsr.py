@@ -654,11 +654,17 @@ _OBJECT_POSE_REPORT_AT = max(
 _BASE_DIAG = _env_bool('BASE_DIAG', False)
 # 起動時に物理パラメータ一式をログへ出す (解析用)。
 _BASE_PHYSICS_REPORT = _env_bool('BASE_PHYSICS_REPORT', True)
-# Camera rendering and ROS serialization dominated the wall-clock runtime when
-# all four cameras published every rendered frame.  Publish every third
-# rendered frame by default; with the default 15 Hz rendering cadence this is
-# 5 Hz, while physics and whole-body control remain at 60 Hz.
-_CAMERA_FRAME_SKIP = max(0, _env_int('CAMERA_FRAME_SKIP', 2))
+# レンダリングされたフレームのうち何枚に 1 枚を ROS へ publish するか (0 = 毎フレーム)。
+# 既定 0: RENDER_EVERY_N_STEPS=2 (=30 Hz レンダリング) と組み合わせて、実機の HSR と同じ
+# 30 Hz で /head_rgbd_sensor/* を出す。物理と全身制御は常に 60 Hz のまま。
+# 以前は 2 (3 枚に 1 枚 = 5 Hz) だったが、これがそのまま
+# /head_rgbd_sensor/reconsted/points が 4 Hz しか出ない原因だった。
+# RTF が落ちるようなら 1 (=15 Hz) に戻す。
+_CAMERA_FRAME_SKIP = max(0, _env_int('CAMERA_FRAME_SKIP', 0))
+# head_l / head_r ステレオ (1280x960 x2) はレンダープロダクトのピクセル予算の 73% を
+# 占めるのに、実測で subscriber は 0 だった。RGBD を 30 Hz で出す余力を作るため既定では
+# 作らない。ステレオ画像が要るタスクのときだけ ENABLE_STEREO_CAMERAS=1 で復活させる。
+_ENABLE_STEREO_CAMERAS = _env_bool('ENABLE_STEREO_CAMERAS', False)
 
 
 # --- 案A(アタッチ把持)用クォータニオン補助 (x,y,z,w) ---
@@ -1160,50 +1166,55 @@ class hsr:
         topic_prefix = '' if is_ros2 else self.prefix
         print(
             '[hsr-camera] publish every %d rendered frame(s) '
-            '(CAMERA_FRAME_SKIP=%d)'
-            % (_CAMERA_FRAME_SKIP + 1, _CAMERA_FRAME_SKIP),
+            '(CAMERA_FRAME_SKIP=%d) stereo=%s'
+            % (_CAMERA_FRAME_SKIP + 1, _CAMERA_FRAME_SKIP,
+               'on' if _ENABLE_STEREO_CAMERAS else 'off'),
             flush=True,
         )
 
-        l_camera_prim = UsdGeom.Camera(
-            omni.usd
-            .get_context()
-            .get_stage()
-            .DefinePrim(
-                self.stage_path + self.prefix + '/head_l_stereo_camera_link/Camera', 'Camera'
+        # ステレオは既定 off (ENABLE_STEREO_CAMERAS=1 で on)。Camera prim を作らなければ
+        # レンダープロダクトも OG グラフも作られないので、GPU のラスタライズも
+        # ROS シリアライズもまるごと消える。
+        if _ENABLE_STEREO_CAMERAS:
+            l_camera_prim = UsdGeom.Camera(
+                omni.usd
+                .get_context()
+                .get_stage()
+                .DefinePrim(
+                    self.stage_path + self.prefix + '/head_l_stereo_camera_link/Camera', 'Camera'
+                )
             )
-        )
-        xform_api = UsdGeom.XformCommonAPI(l_camera_prim)
-        xform_api.SetRotate(
-            (180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
-        l_camera_prim.GetHorizontalApertureAttr().Set(1280 * 0.003)
-        l_camera_prim.GetVerticalApertureAttr().Set(960 * 0.003)
-        l_camera_prim.GetProjectionAttr().Set('perspective')
-        l_camera_prim.GetFocalLengthAttr().Set(968.770306867 * 0.003)
-        l_camera_prim.GetFocusDistanceAttr().Set(400)
-        # near=0.07m, far=100m。既定near=1mだと1m以内の近接物体が消えるので小さくする。
-        # 頭部RGBDの自己オクルージョン対策と値を揃え、全カメラ0.07mに統一。far=100mは室内に十分。
-        l_camera_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.07, 100.0))
+            xform_api = UsdGeom.XformCommonAPI(l_camera_prim)
+            xform_api.SetRotate(
+                (180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
+            l_camera_prim.GetHorizontalApertureAttr().Set(1280 * 0.003)
+            l_camera_prim.GetVerticalApertureAttr().Set(960 * 0.003)
+            l_camera_prim.GetProjectionAttr().Set('perspective')
+            l_camera_prim.GetFocalLengthAttr().Set(968.770306867 * 0.003)
+            l_camera_prim.GetFocusDistanceAttr().Set(400)
+            # near=0.07m, far=100m。既定near=1mだと1m以内の近接物体が消えるので小さくする。
+            # 頭部RGBDの自己オクルージョン対策と値を揃え、全カメラ0.07mに統一。far=100mは室内に十分。
+            l_camera_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.07, 100.0))
 
-        r_camera_prim = UsdGeom.Camera(
-            omni.usd
-            .get_context()
-            .get_stage()
-            .DefinePrim(
-                self.stage_path + self.prefix + '/head_r_stereo_camera_link/Camera', 'Camera'
+            r_camera_prim = UsdGeom.Camera(
+                omni.usd
+                .get_context()
+                .get_stage()
+                .DefinePrim(
+                    self.stage_path + self.prefix + '/head_r_stereo_camera_link/Camera', 'Camera'
+                )
             )
-        )
-        xform_api = UsdGeom.XformCommonAPI(r_camera_prim)
-        xform_api.SetRotate(
-            (180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
-        r_camera_prim.GetHorizontalApertureAttr().Set(1280 * 0.003)
-        r_camera_prim.GetVerticalApertureAttr().Set(960 * 0.003)
-        r_camera_prim.GetProjectionAttr().Set('perspective')
-        r_camera_prim.GetFocalLengthAttr().Set(968.770306867 * 0.003)
-        r_camera_prim.GetFocusDistanceAttr().Set(400)
-        # near=0.07m, far=100m。既定near=1mだと1m以内の近接物体が消えるので小さくする。
-        # 頭部RGBDの自己オクルージョン対策と値を揃え、全カメラ0.07mに統一。far=100mは室内に十分。
-        r_camera_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.07, 100.0))
+            xform_api = UsdGeom.XformCommonAPI(r_camera_prim)
+            xform_api.SetRotate(
+                (180, 0, 0), UsdGeom.XformCommonAPI.RotationOrderXYZ)
+            r_camera_prim.GetHorizontalApertureAttr().Set(1280 * 0.003)
+            r_camera_prim.GetVerticalApertureAttr().Set(960 * 0.003)
+            r_camera_prim.GetProjectionAttr().Set('perspective')
+            r_camera_prim.GetFocalLengthAttr().Set(968.770306867 * 0.003)
+            r_camera_prim.GetFocusDistanceAttr().Set(400)
+            # near=0.07m, far=100m。既定near=1mだと1m以内の近接物体が消えるので小さくする。
+            # 頭部RGBDの自己オクルージョン対策と値を揃え、全カメラ0.07mに統一。far=100mは室内に十分。
+            r_camera_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.07, 100.0))
 
         rgbd_camera_prim = UsdGeom.Camera(
             omni.usd
@@ -1243,6 +1254,10 @@ class hsr:
         # 頭部RGBDの自己オクルージョン対策と値を揃え、全カメラ0.07mに統一。far=100mは室内に十分。
         hand_camera_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.07, 100.0))
 
+        # ステレオ無効時も属性自体は必ず生えている状態にしておく (AttributeError 回避)。
+        self.ros_camera_graph_l = None
+        self.ros_camera_graph_r = None
+
         try:
             og.Controller.edit(
                 {'graph_path': '/ros_controllers', 'evaluator_name': 'execution'},
@@ -1263,117 +1278,119 @@ class hsr:
                 },
             )
 
-            (self.ros_camera_graph_l, _, _, _) = og.Controller.edit(
-                {
-                    'graph_path': '/head_l_camera',
-                    'evaluator_name': 'push',
-                    'pipeline_stage': og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_ONDEMAND,
-                },
-                {
-                    og.Controller.Keys.CREATE_NODES: [
-                        ('OnTick', 'omni.graph.action.OnTick'),
-                        ('createRenderProduct',
-                         'isaacsim.core.nodes.IsaacCreateRenderProduct'),
-                        ('cameraHelperRgb', og_ros_node(
-                            'isaacsim.ros1.bridge.ROS1CameraHelper')),
-                        ('cameraHelperInfo', og_ros_node(
-                            'isaacsim.ros1.bridge.ROS1CameraHelper')),
-                    ],
-                    og.Controller.Keys.CONNECT: [
-                        ('OnTick.outputs:tick', 'createRenderProduct.inputs:execIn'),
-                        ('createRenderProduct.outputs:execOut',
-                         'cameraHelperRgb.inputs:execIn'),
-                        ('createRenderProduct.outputs:execOut',
-                         'cameraHelperInfo.inputs:execIn'),
-                        (
-                            'createRenderProduct.outputs:renderProductPath',
-                            'cameraHelperRgb.inputs:renderProductPath',
-                        ),
-                        (
-                            'createRenderProduct.outputs:renderProductPath',
-                            'cameraHelperInfo.inputs:renderProductPath',
-                        ),
-                    ],
-                    og.Controller.Keys.SET_VALUES: [
-                        ('createRenderProduct.inputs:width', 1280),
-                        ('createRenderProduct.inputs:height', 960),
-                        ('cameraHelperRgb.inputs:frameId',
-                         'head_l_stereo_camera_frame'),
-                        (
-                            'cameraHelperRgb.inputs:topicName',
-                            topic_prefix + '/head_l_stereo_camera/image_rect_color',
-                        ),
-                        ('cameraHelperRgb.inputs:frameSkipCount',
-                         _CAMERA_FRAME_SKIP),
-                        ('cameraHelperRgb.inputs:type', 'rgb'),
-                        ('cameraHelperInfo.inputs:frameId',
-                         'head_l_stereo_camera_frame'),
-                        (
-                            'cameraHelperInfo.inputs:topicName',
-                            topic_prefix + '/head_l_stereo_camera/camera_info',
-                        ),
-                        ('cameraHelperInfo.inputs:frameSkipCount',
-                         _CAMERA_FRAME_SKIP),
-                        ('cameraHelperInfo.inputs:type', 'camera_info'),
-                    ],
-                },
-            )
+            # ステレオ 2 本のグラフ (レンダープロダクト 1280x960 x2 込み) は既定では作らない。
+            if _ENABLE_STEREO_CAMERAS:
+                (self.ros_camera_graph_l, _, _, _) = og.Controller.edit(
+                    {
+                        'graph_path': '/head_l_camera',
+                        'evaluator_name': 'push',
+                        'pipeline_stage': og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_ONDEMAND,
+                    },
+                    {
+                        og.Controller.Keys.CREATE_NODES: [
+                            ('OnTick', 'omni.graph.action.OnTick'),
+                            ('createRenderProduct',
+                             'isaacsim.core.nodes.IsaacCreateRenderProduct'),
+                            ('cameraHelperRgb', og_ros_node(
+                                'isaacsim.ros1.bridge.ROS1CameraHelper')),
+                            ('cameraHelperInfo', og_ros_node(
+                                'isaacsim.ros1.bridge.ROS1CameraHelper')),
+                        ],
+                        og.Controller.Keys.CONNECT: [
+                            ('OnTick.outputs:tick', 'createRenderProduct.inputs:execIn'),
+                            ('createRenderProduct.outputs:execOut',
+                             'cameraHelperRgb.inputs:execIn'),
+                            ('createRenderProduct.outputs:execOut',
+                             'cameraHelperInfo.inputs:execIn'),
+                            (
+                                'createRenderProduct.outputs:renderProductPath',
+                                'cameraHelperRgb.inputs:renderProductPath',
+                            ),
+                            (
+                                'createRenderProduct.outputs:renderProductPath',
+                                'cameraHelperInfo.inputs:renderProductPath',
+                            ),
+                        ],
+                        og.Controller.Keys.SET_VALUES: [
+                            ('createRenderProduct.inputs:width', 1280),
+                            ('createRenderProduct.inputs:height', 960),
+                            ('cameraHelperRgb.inputs:frameId',
+                             'head_l_stereo_camera_frame'),
+                            (
+                                'cameraHelperRgb.inputs:topicName',
+                                topic_prefix + '/head_l_stereo_camera/image_rect_color',
+                            ),
+                            ('cameraHelperRgb.inputs:frameSkipCount',
+                             _CAMERA_FRAME_SKIP),
+                            ('cameraHelperRgb.inputs:type', 'rgb'),
+                            ('cameraHelperInfo.inputs:frameId',
+                             'head_l_stereo_camera_frame'),
+                            (
+                                'cameraHelperInfo.inputs:topicName',
+                                topic_prefix + '/head_l_stereo_camera/camera_info',
+                            ),
+                            ('cameraHelperInfo.inputs:frameSkipCount',
+                             _CAMERA_FRAME_SKIP),
+                            ('cameraHelperInfo.inputs:type', 'camera_info'),
+                        ],
+                    },
+                )
 
-            (self.ros_camera_graph_r, _, _, _) = og.Controller.edit(
-                {
-                    'graph_path': '/head_r_camera',
-                    'evaluator_name': 'push',
-                    'pipeline_stage': og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_ONDEMAND,
-                },
-                {
-                    og.Controller.Keys.CREATE_NODES: [
-                        ('OnTick', 'omni.graph.action.OnTick'),
-                        ('createRenderProduct',
-                         'isaacsim.core.nodes.IsaacCreateRenderProduct'),
-                        ('cameraHelperRgb', og_ros_node(
-                            'isaacsim.ros1.bridge.ROS1CameraHelper')),
-                        ('cameraHelperInfo', og_ros_node(
-                            'isaacsim.ros1.bridge.ROS1CameraHelper')),
-                    ],
-                    og.Controller.Keys.CONNECT: [
-                        ('OnTick.outputs:tick', 'createRenderProduct.inputs:execIn'),
-                        ('createRenderProduct.outputs:execOut',
-                         'cameraHelperRgb.inputs:execIn'),
-                        ('createRenderProduct.outputs:execOut',
-                         'cameraHelperInfo.inputs:execIn'),
-                        (
-                            'createRenderProduct.outputs:renderProductPath',
-                            'cameraHelperRgb.inputs:renderProductPath',
-                        ),
-                        (
-                            'createRenderProduct.outputs:renderProductPath',
-                            'cameraHelperInfo.inputs:renderProductPath',
-                        ),
-                    ],
-                    og.Controller.Keys.SET_VALUES: [
-                        ('createRenderProduct.inputs:width', 1280),
-                        ('createRenderProduct.inputs:height', 960),
-                        ('cameraHelperRgb.inputs:frameId',
-                         'head_r_stereo_camera_frame'),
-                        (
-                            'cameraHelperRgb.inputs:topicName',
-                            topic_prefix + '/head_r_stereo_camera/image_rect_color',
-                        ),
-                        ('cameraHelperRgb.inputs:frameSkipCount',
-                         _CAMERA_FRAME_SKIP),
-                        ('cameraHelperRgb.inputs:type', 'rgb'),
-                        ('cameraHelperInfo.inputs:frameId',
-                         'head_r_stereo_camera_frame'),
-                        (
-                            'cameraHelperInfo.inputs:topicName',
-                            topic_prefix + '/head_r_stereo_camera/camera_info',
-                        ),
-                        ('cameraHelperInfo.inputs:frameSkipCount',
-                         _CAMERA_FRAME_SKIP),
-                        ('cameraHelperInfo.inputs:type', 'camera_info'),
-                    ],
-                },
-            )
+                (self.ros_camera_graph_r, _, _, _) = og.Controller.edit(
+                    {
+                        'graph_path': '/head_r_camera',
+                        'evaluator_name': 'push',
+                        'pipeline_stage': og.GraphPipelineStage.GRAPH_PIPELINE_STAGE_ONDEMAND,
+                    },
+                    {
+                        og.Controller.Keys.CREATE_NODES: [
+                            ('OnTick', 'omni.graph.action.OnTick'),
+                            ('createRenderProduct',
+                             'isaacsim.core.nodes.IsaacCreateRenderProduct'),
+                            ('cameraHelperRgb', og_ros_node(
+                                'isaacsim.ros1.bridge.ROS1CameraHelper')),
+                            ('cameraHelperInfo', og_ros_node(
+                                'isaacsim.ros1.bridge.ROS1CameraHelper')),
+                        ],
+                        og.Controller.Keys.CONNECT: [
+                            ('OnTick.outputs:tick', 'createRenderProduct.inputs:execIn'),
+                            ('createRenderProduct.outputs:execOut',
+                             'cameraHelperRgb.inputs:execIn'),
+                            ('createRenderProduct.outputs:execOut',
+                             'cameraHelperInfo.inputs:execIn'),
+                            (
+                                'createRenderProduct.outputs:renderProductPath',
+                                'cameraHelperRgb.inputs:renderProductPath',
+                            ),
+                            (
+                                'createRenderProduct.outputs:renderProductPath',
+                                'cameraHelperInfo.inputs:renderProductPath',
+                            ),
+                        ],
+                        og.Controller.Keys.SET_VALUES: [
+                            ('createRenderProduct.inputs:width', 1280),
+                            ('createRenderProduct.inputs:height', 960),
+                            ('cameraHelperRgb.inputs:frameId',
+                             'head_r_stereo_camera_frame'),
+                            (
+                                'cameraHelperRgb.inputs:topicName',
+                                topic_prefix + '/head_r_stereo_camera/image_rect_color',
+                            ),
+                            ('cameraHelperRgb.inputs:frameSkipCount',
+                             _CAMERA_FRAME_SKIP),
+                            ('cameraHelperRgb.inputs:type', 'rgb'),
+                            ('cameraHelperInfo.inputs:frameId',
+                             'head_r_stereo_camera_frame'),
+                            (
+                                'cameraHelperInfo.inputs:topicName',
+                                topic_prefix + '/head_r_stereo_camera/camera_info',
+                            ),
+                            ('cameraHelperInfo.inputs:frameSkipCount',
+                             _CAMERA_FRAME_SKIP),
+                            ('cameraHelperInfo.inputs:type', 'camera_info'),
+                        ],
+                    },
+                )
 
             (self.ros_camera_graph_rgbd, _, _, _) = og.Controller.edit(
                 {
@@ -1536,21 +1553,22 @@ class hsr:
         except Exception as e:
             raise e
 
-        set_targets(
-            prim=stage.get_current_stage().GetPrimAtPath(
-                '/head_l_camera/createRenderProduct'),
-            attribute='inputs:cameraPrim',
-            target_prim_paths=[self.stage_path + self.prefix +
-                               '/head_l_stereo_camera_link/Camera'],
-        )
+        if _ENABLE_STEREO_CAMERAS:
+            set_targets(
+                prim=stage.get_current_stage().GetPrimAtPath(
+                    '/head_l_camera/createRenderProduct'),
+                attribute='inputs:cameraPrim',
+                target_prim_paths=[self.stage_path + self.prefix +
+                                   '/head_l_stereo_camera_link/Camera'],
+            )
 
-        set_targets(
-            prim=stage.get_current_stage().GetPrimAtPath(
-                '/head_r_camera/createRenderProduct'),
-            attribute='inputs:cameraPrim',
-            target_prim_paths=[self.stage_path + self.prefix +
-                               '/head_r_stereo_camera_link/Camera'],
-        )
+            set_targets(
+                prim=stage.get_current_stage().GetPrimAtPath(
+                    '/head_r_camera/createRenderProduct'),
+                attribute='inputs:cameraPrim',
+                target_prim_paths=[self.stage_path + self.prefix +
+                                   '/head_r_stereo_camera_link/Camera'],
+            )
 
         set_targets(
             prim=stage.get_current_stage().GetPrimAtPath(
@@ -1568,8 +1586,9 @@ class hsr:
                                self.prefix + '/hand_camera_frame/Camera'],
         )
 
-        og.Controller.evaluate_sync(self.ros_camera_graph_l)
-        og.Controller.evaluate_sync(self.ros_camera_graph_r)
+        if _ENABLE_STEREO_CAMERAS:
+            og.Controller.evaluate_sync(self.ros_camera_graph_l)
+            og.Controller.evaluate_sync(self.ros_camera_graph_r)
         og.Controller.evaluate_sync(self.ros_camera_graph_rgbd)
         og.Controller.evaluate_sync(self.ros_camera_graph_hand)
 
