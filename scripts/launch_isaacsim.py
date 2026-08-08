@@ -97,16 +97,22 @@ if CAMERA_TUNE and TASK_TIME > 0:
     print('[task] CAMERA_TUNE=1 のため競技モード(録画)は無効にします。', flush=True)
     TASK_TIME = 0.0
 
+# 物理 60 Hz のうち何ステップに 1 回描画するか。描画したフレームだけがカメラの
+# publish 候補になるので、ここが RGB-D の上限レートを決める:
+#   カメラ publish [Hz] = 60 / RENDER_EVERY_N_STEPS / (CAMERA_FRAME_SKIP + 1) * RTF
+# 既定 2 = 30 Hz 描画。CAMERA_FRAME_SKIP=0 と合わせて実機同等の 30 Hz を狙う。
+# (以前は 4 で、CAMERA_FRAME_SKIP=2 と合わせて 5 Hz 名目 = 実測 3.9 Hz だった。)
+# RTF が 1.0 を保てないときは 3 や 4 に戻す。物理と全身制御は常に 60 Hz。
 try:
     RENDER_EVERY_N_STEPS = max(
-        1, int(os.environ.get('RENDER_EVERY_N_STEPS', '4')))
+        1, int(os.environ.get('RENDER_EVERY_N_STEPS', '2')))
 except ValueError:
     print(
-        '[render] WARNING: RENDER_EVERY_N_STEPS=%r is invalid; using 4'
+        '[render] WARNING: RENDER_EVERY_N_STEPS=%r is invalid; using 2'
         % os.environ.get('RENDER_EVERY_N_STEPS'),
         flush=True,
     )
-    RENDER_EVERY_N_STEPS = 4
+    RENDER_EVERY_N_STEPS = 2
 print(
     '[render] viewport update every %d physics step(s)'
     % RENDER_EVERY_N_STEPS,
@@ -833,20 +839,25 @@ if _lidar_prim.IsValid():
 _physics_step_index = 0
 while kit.is_running():
     # Run with a fixed step size
+    _render_this_step = (_physics_step_index % RENDER_EVERY_N_STEPS == 0)
     if _num_people > 0:
         # 人 (UsdSkel) のアニメーションは kit.update() を回さないと評価されない。
         # ただし step(render=True) は内部で描画するので、その後に kit.update()
         # を足すと「1 コマで 2 回描画」になりレンダラが不安定になる
         # (X 接続断・セグフォルトの原因)。そこで物理ステップは描画なし
         # (render=False) にし、描画とアニメ評価は kit.update() の 1 回に任せる。
+        # その kit.update() も RENDER_EVERY_N_STEPS で間引く。以前は毎ステップ
+        # 呼んでいたため、人がいるシーンだけ 60 Hz 描画になって間引き設定が丸ごと
+        # 無視され、RTF が大きく落ちていた。アニメ評価も同じ間引きになる
+        # (既定 2 なら 30 Hz) が、見た目には分からない。
         simulation_context.step(render=False)
-        kit.update()
+        if _render_this_step:
+            kit.update()
     else:
-        # Physics and whole-body control remain at 60 Hz.  Rendering the Kit
-        # viewport and four camera products at the same rate made simulation
-        # time run much slower than wall time, so only render every Nth step.
-        simulation_context.step(
-            render=(_physics_step_index % RENDER_EVERY_N_STEPS == 0))
+        # 物理と全身制御は 60 Hz のまま。Kit のビューポートとカメラのレンダープロダクトを
+        # 同じ 60 Hz で描くと sim 時間が実時間に対して大きく遅れるので、N ステップに
+        # 1 回だけ描く。
+        simulation_context.step(render=_render_this_step)
     _physics_step_index += 1
     try:
         _hsr.step()

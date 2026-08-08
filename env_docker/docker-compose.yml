@@ -25,6 +25,7 @@ services:
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-26}
     volumes:
       - ../launch/hsr.launch.py:/hsr.launch.py:ro
+      - ../scripts/rgbd_republisher.py:/rgbd_republisher.py:ro
       # 制御指示のサンプルコード (実習用)。編集が即反映されるよう live マウント
       - ../examples:/examples:ro
       - ../assets/moveit-no-octomap.rviz:/ws/install/hsrb_moveit_config/share/hsrb_moveit_config/config/moveit.rviz:ro
@@ -106,11 +107,19 @@ services:
       - BASE_JOINT_BRAKE=${BASE_JOINT_BRAKE:-1}
       - OBJECT_POSE_REPORT=${OBJECT_POSE_REPORT:-1}
       - BASE_DIAG=${BASE_DIAG:-0}
-      # 60 Hz物理は維持し、4系統のカメラだけ既定5 Hz (2描画フレームskip)にする。
-      - CAMERA_FRAME_SKIP=${CAMERA_FRAME_SKIP:-2}
-      # Isaacの画面描画は既定15 Hz。物理・whole-body制御と/clockは60 Hzのまま。
-      - RENDER_EVERY_N_STEPS=${RENDER_EVERY_N_STEPS:-4}
+
+      # カメラ publish [Hz] = 60 / RENDER_EVERY_N_STEPS / (CAMERA_FRAME_SKIP + 1) * RTF
+      # 既定は 60/2/1 = 30 Hz で実機の HSR に合わせる。物理・whole-body制御・/clock は 60 Hz のまま。
+      # 描画フレームを間引かず全部 publish する (0 = 毎描画フレーム)。
+      - CAMERA_FRAME_SKIP=${CAMERA_FRAME_SKIP:-0}
+
+      # Isaacの画面描画は既定30 Hz (物理2ステップに1回)。
+      - RENDER_EVERY_N_STEPS=${RENDER_EVERY_N_STEPS:-2}
+      # head_l/head_r ステレオ(1280x960 x2)は描画予算の 73% を食うのに購読者が居ないので既定 off。
+      # ステレオ画像が要るタスクのときだけ 1 にする。
+      - ENABLE_STEREO_CAMERAS=${ENABLE_STEREO_CAMERAS:-0}
       - CYCLONEDDS_URI=${CYCLONEDDS_URI:-file:///cyclonedds.xml}
+
       # 学生環境と揃える (上の ros2 サービスと同じ値にすること)
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-26}
     volumes:

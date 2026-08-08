@@ -152,6 +152,87 @@ ros2 topic echo /scan --once    # 中身を 1 件だけ見る
 > **ROS_DOMAIN_ID** は既定 26 (実習の学生環境に合わせている)。別 PC と通信するときは
 > 両方で必ず揃えること。ずれると一切つながらない。
 
+#### トラブルシューティング: `/head_rgbd_sensor/reconsted/points` が空
+
+トピックは `ros2 topic list` に出るのに `ros2 topic echo` しても何も来ない場合。
+
+この点群は sim 側ではなく `hma2_ws` の `head_pcl_reconst` (`hma_pcl_reconst2`) が作っている。
+このノードは `use_compressed: true` で動くため、購読先は raw の画像ではなく**圧縮版**:
+
+- `/head_rgbd_sensor/rgb/image_rect_color/compressed`
+- `/head_rgbd_sensor/depth_registered/image_rect_raw/compressedDepth`
+
+Isaac Sim の `ROS2CameraHelper` は raw の `sensor_msgs/Image` しか出さないので、これを圧縮して
+配り直す `scripts/rgbd_republisher.py` が必要。`hsr.launch.py` が既定で起動する。
+これが動いていないと depth/rgb の同期が一度も発火せず、publisher は advertise だけされて無言になる。
+
+```bash
+make exec ros2
+# コンテナ内で:
+ros2 node list | grep rgbd_republisher                          # 起動しているか
+ros2 topic info /head_rgbd_sensor/rgb/image_rect_color/compressed  # Publisher count が 1 か
+```
+
+`Publisher count: 0` なら republisher が落ちている。`docker compose ... logs ros2 | grep -i republisher`
+でエラーを確認する。意図的に止めたい場合のみ `ros2 launch /hsr.launch.py use_rgbd_republisher:=false`。
+
+なお RViz で表示するときは publisher が BEST_EFFORT なので **Reliability を Best Effort** にすること。
+Reliable のままだと QoS 不一致で永久に繋がらない。
+
+#### カメラのレート (既定 30 Hz)
+
+`/head_rgbd_sensor/*` の publish レートは 2 つの間引き設定の積で決まる。
+
+```
+カメラ publish [Hz] = 60 / RENDER_EVERY_N_STEPS / (CAMERA_FRAME_SKIP + 1) * RTF
+```
+
+| 変数 | 既定 | 意味 |
+|---|---|---|
+| `RENDER_EVERY_N_STEPS` | 2 | 物理 60 Hz のうち何ステップに 1 回描画するか (= 30 Hz 描画) |
+| `CAMERA_FRAME_SKIP` | 0 | 描画したフレームのうち何枚に 1 枚 publish するか (0 = 毎フレーム) |
+| `ENABLE_STEREO_CAMERAS` | 0 | head_l/head_r ステレオ (1280x960 x2) を作るか |
+
+既定は `60 / 2 / 1 = 30 Hz` で実機の HSR と同等。物理と whole-body 制御と `/clock` は常に 60 Hz。
+
+以前の既定 (`RENDER_EVERY_N_STEPS=4`, `CAMERA_FRAME_SKIP=2`) は 5 Hz 名目 = 実測 3.9 Hz で、
+これがそのまま「`/head_rgbd_sensor/reconsted/points` が 4 Hz しか出ない」原因だった
+(中継ノードも `head_pcl_reconst` も律速ではない)。
+
+ステレオ 2 本はレンダープロダクトのピクセル予算の 73% を占めるのに購読者が居ないので、
+30 Hz 化の余力を作るため既定で作らない。ステレオ画像が要るタスクのときだけ:
+
+```bash
+make up ENABLE_STEREO_CAMERAS=1
+```
+
+**RTF が 1.0 を保てないとき** (`ros2 topic hz /clock` が 60 から大きく落ちるとき) は、
+軽い順に次を試す。いずれも環境変数なので再ビルドは不要。
+
+```bash
+make up CAMERA_FRAME_SKIP=1        # 15 Hz に落とす
+make up RENDER_EVERY_N_STEPS=3     # 20 Hz に落とす
+```
+
+GUI が要らない運用なら `scripts/launch_isaacsim.py` の `SimulationApp({'headless': False})` を
+`True` にすると、カメラとは別に毎フレーム描いている Kit ビューポートの分がまるごと浮く。
+
+#### トラブルシューティング: 点群のレートが発行元より低い
+
+`/head_rgbd_sensor/reconsted/points` は **1 枚 9.83MB** (640x480 x point_step 32) と巨大で、
+CycloneDDS の UDP 断片化の影響をまともに受ける。発行元が 30 Hz でも受信側でごっそり落ちることがある。
+
+sim 側 (docker コンテナ) の DDS 設定は `assets/cyclonedds.xml` にあり、`FragmentSize` と
+`WhcHigh` をこのサイズ前提で調整済み。
+
+**発行元の `head_pcl_reconst` は `hma2_ws` の Apptainer サンドボックス側で動いており、
+DDS 設定も別ファイル** (`hma2_ws/env/rmw_profiles/5e_isaac/cyclonedds.xml`) を読む。
+こちらは `FragmentSize` も `WhcHigh` も未指定で Cyclone 既定 (1344B / 100kB) のままなので、
+9.83MB が 7300 断片に割られて 1 断片の欠落でサンプルが丸ごと失われる。
+このファイルは `hma2_ws/ws_setup/robot/scripts/gen_rmw_profiles.py` の**自動生成物**なので、
+直接編集しても再生成で消える。**生成スクリプト側に `FragmentSize`/`WhcHigh` を足す**のが正しい
+直し方で、これは hma2_ws リポジトリ側の作業。
+
 ---
 
 ## 録画の保存先
