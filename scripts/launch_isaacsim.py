@@ -113,23 +113,8 @@ print(
     flush=True,
 )
 
-viewports.set_camera_view(eye=np.array(
-    [3.7, 1.7, 5.0]), target=np.array([0, 0, 0]))
-
-create_prim(
-    '/World/Light_1',
-    'SphereLight',
-    position=np.array([2.0, 0.0, 5.0]),
-    attributes={'inputs:radius': 0.01, 'inputs:intensity': 5e4,
-                'inputs:color': (1.0, 1.0, 1.0)},
-)
-create_prim(
-    '/World/Light_2',
-    'SphereLight',
-    position=np.array([-2.0, 0.0, 5.0]),
-    attributes={'inputs:radius': 0.01, 'inputs:intensity': 5e4,
-                'inputs:color': (1.0, 1.0, 1.0)},
-)
+# (初期視点と照明の配置は、部屋の中心が分かってからでないと決められないので
+#  ワールドファイルを読んだ後 = 床サイズの計算の直後に行う)
 
 
 # アセットの「根っこ(root)」。
@@ -191,6 +176,25 @@ if _wb is not None:
 else:
     _floor_size, _floor_cx, _floor_cy = 15.0, 0.0, 0.0
 print(f'[floor] size={_floor_size:.2f}m center=({_floor_cx:.2f}, {_floor_cy:.2f})')
+
+# ============================================================
+# 初期視点と部屋の照明
+# ============================================================
+# どちらも「部屋の中心」を基準に置く。world 座標を直接書くと、ワールドを
+# 平行移動・回転したときにここだけ取り残されて照明が偏る (実際に起きた)。
+viewports.set_camera_view(
+    eye=np.array([_floor_cx - 1.7, _floor_cy + 3.7, 5.0]),
+    target=np.array([_floor_cx, _floor_cy, 0.0]))
+
+# 部屋の中心をはさんで 2 灯。4m 離して対称に置く。
+for _i, _dy in enumerate((2.0, -2.0)):
+    create_prim(
+        f'/World/Light_{_i + 1}',
+        'SphereLight',
+        position=np.array([_floor_cx, _floor_cy + _dy, 5.0]),
+        attributes={'inputs:radius': 0.01, 'inputs:intensity': 5e4,
+                    'inputs:color': (1.0, 1.0, 1.0)},
+    )
 
 # 物理の地面 (ロボット・物体が乗る面)。薄い板に当たり判定を付け、上面を z=0 に置く。
 # 大きさは上で計算した「テクスチャ床と同じ」正方形。厚さは 5cm (横から見ても薄い板)。
@@ -503,6 +507,24 @@ if _spawn_path is not None:
     print(f'[hsr] spawn from {_spawn_path} (robot:): {_robot_spawn}')
 else:
     print(f'[hsr] placement.yaml が無いのでフォールバック値を使用: {_robot_spawn}')
+
+# スポーン姿勢は odom (ひいては map) 座標の原点そのもの (scripts/hsr.py:3243)。
+# 原点からずれていると、placement.yaml に書く world 座標と、ナビゲーションに
+# 渡す map 座標が、そのずれの分だけ食い違う。黙って壊れると原因が分からない
+# ので、はっきり警告する。位置を変えたいときは部屋 (worlds/carrobo.world) の
+# ほうを動かして、スタート地点が原点に来るようにすること。
+if max(abs(_robot_spawn['x']), abs(_robot_spawn['y']),
+       abs(_robot_spawn['yaw'])) > 1e-6:
+    print(
+        '[hsr] WARNING: robot: が原点 (0, 0, 0) ではありません '
+        f"(x={_robot_spawn['x']}, y={_robot_spawn['y']}, "
+        f"yaw={_robot_spawn['yaw']}).\n"
+        '[hsr]          odom / map 座標が world 座標とこの分ずれます。'
+        '絶対座標のナビゲーションを使うなら\n'
+        '[hsr]          robot: を (0, 0, 0) に戻し、代わりに '
+        'worlds/carrobo.world 側を平行移動してください。',
+        flush=True,
+    )
 
 # ロボットは HSR-B (hsrb) 固定。
 hsr_stage_path = '/hsrb'
