@@ -23,6 +23,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import time
 
 import yaml
 
@@ -58,6 +59,19 @@ def main() -> int:
     if not os.path.exists(TUNED):
         print(f"[apply-tune] 調整結果がありません: {TUNED}")
         print("[apply-tune] 先に `make tune` で位置を調整してください。")
+        return 1
+
+    # placement.yaml のほうが新しいなら、調整結果は前の座標系のものかもしれない。
+    # そのまま貼ると、あとから行った変更 (原点の移動など) が巻き戻る。
+    if os.path.getmtime(TUNED) < os.path.getmtime(TARGET):
+        t_tuned = time.strftime("%Y-%m-%d %H:%M",
+                                time.localtime(os.path.getmtime(TUNED)))
+        t_target = time.strftime("%Y-%m-%d %H:%M",
+                                 time.localtime(os.path.getmtime(TARGET)))
+        print(f"[apply-tune] 調整結果 ({t_tuned}) が "
+              f"configs/placement.yaml ({t_target}) より古いので中止します。")
+        print("[apply-tune] そのまま貼ると placement.yaml の変更が巻き戻ります。")
+        print("[apply-tune] `make tune` で取り直してから実行してください。")
         return 1
 
     tuned_text = open(TUNED).read()
