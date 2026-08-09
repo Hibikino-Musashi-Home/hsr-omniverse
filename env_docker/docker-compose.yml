@@ -24,6 +24,12 @@ services:
       # 揃っていないと ROS 2 は互いを一切見つけられない。
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-26}
     volumes:
+      # DDS 設定を live マウント (イメージにも COPY 済みなので外せば焼き込み版が使われる)。
+      # 既定は従来どおり /cyclonedds.xml。DDS を loopback に閉じたいときは
+      #   CYCLONEDDS_URI=file:///cyclonedds.localhost.xml make up
+      # で切り替える (再ビルド不要)。理由は assets/cyclonedds.localhost.xml の先頭コメント参照。
+      - ../assets/cyclonedds.xml:/cyclonedds.xml:ro
+      - ../assets/cyclonedds.localhost.xml:/cyclonedds.localhost.xml:ro
       - ../launch/hsr.launch.py:/hsr.launch.py:ro
       - ../scripts/rgbd_republisher.py:/rgbd_republisher.py:ro
       # 制御指示のサンプルコード (実習用)。編集が即反映されるよう live マウント
@@ -76,8 +82,11 @@ services:
       - BASE_CMD_TAU=${BASE_CMD_TAU:-0.10}
       - BASE_WHEEL_ACCEL_LIMIT=${BASE_WHEEL_ACCEL_LIMIT:-41.7}
       - BASE_STEER_ACCEL_LIMIT=${BASE_STEER_ACCEL_LIMIT:-5.0}
-      - BASE_LINEAR_ACCEL_LIMIT=${BASE_LINEAR_ACCEL_LIMIT:-0.35}
-      - BASE_ANGULAR_ACCEL_LIMIT=${BASE_ANGULAR_ACCEL_LIMIT:-0.8}
+      # 台車の並進/回転の加速度上限。実測ではここが応答を支配する (CMD_TAU ではない)。
+      # 0.35/0.8 だと pumas_nav2 が曲がりきれず、ゴール手前の減速中に simple_move の
+      # attempts (wall tick 予算) が尽きて abort していたため引き上げた。
+      - BASE_LINEAR_ACCEL_LIMIT=${BASE_LINEAR_ACCEL_LIMIT:-1.0}
+      - BASE_ANGULAR_ACCEL_LIMIT=${BASE_ANGULAR_ACCEL_LIMIT:-2.0}
       - BASE_WHEEL_DRIVE_DAMPING=${BASE_WHEEL_DRIVE_DAMPING:-10.0}
       # キャスターの転がり軸の粘性摩擦。0 にすると静止後も永久に回り続ける。
       - BASE_PASSIVE_WHEEL_DAMPING=${BASE_PASSIVE_WHEEL_DAMPING:-0.001}
@@ -123,6 +132,9 @@ services:
       # 学生環境と揃える (上の ros2 サービスと同じ値にすること)
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-26}
     volumes:
+      # DDS 設定を live マウント (ros2 サービスと同じ。CYCLONEDDS_URI で切り替える)
+      - ../assets/cyclonedds.xml:/cyclonedds.xml:ro
+      - ../assets/cyclonedds.localhost.xml:/cyclonedds.localhost.xml:ro
       - ../scripts/launch_isaacsim.py:/app/launch_isaacsim.py:ro
       - ../scripts/hsr.py:/app/hsr.py:ro
       - ../scripts/arena_cameras.py:/app/arena_cameras.py:ro

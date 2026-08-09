@@ -67,8 +67,13 @@ BASE_TRAJ_I_ANGULAR_LIMIT ?= 0.15
 BASE_CMD_TAU ?= 0.10
 BASE_WHEEL_ACCEL_LIMIT ?= 41.7
 BASE_STEER_ACCEL_LIMIT ?= 5.0
-BASE_LINEAR_ACCEL_LIMIT ?= 0.35
-BASE_ANGULAR_ACCEL_LIMIT ?= 0.8
+# 台車の並進/回転の加速度上限 [m/s^2] / [rad/s^2]。
+# reset_world 後のステップ応答を実測すると立ち上がりはこの値そのままの直線になり、
+# BASE_CMD_TAU ではなくここが応答を支配する。0.35/0.8 では pumas_nav2 の経路追従が
+# 曲がりきれず、ゴール手前の減速中に simple_move の attempts (wall tick 予算) が
+# 尽きて abort していたため引き上げた。
+BASE_LINEAR_ACCEL_LIMIT ?= 1.0
+BASE_ANGULAR_ACCEL_LIMIT ?= 2.0
 BASE_WHEEL_DRIVE_DAMPING ?= 10.0
 # キャスターの転がり軸の粘性摩擦 (0 だと静止後も回り続ける)
 BASE_PASSIVE_WHEEL_DAMPING ?= 0.001
