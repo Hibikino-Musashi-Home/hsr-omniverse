@@ -18,6 +18,11 @@
 #   make tune       観戦カメラ4台だけ作って起動 (録画なし)。GUI で位置・画角を
 #                   動かすと recordings/tune/ に設定 yaml とプレビュー画像が出る。
 #
+# DDS を loopback に閉じるモード (LANへのマルチキャスト漏洩対策):
+#   make up localhost   assets/cyclonedds.localhost.xml を使って起動する。
+#                       同一ホスト内だけで ROS 通信する場合はこちらを推奨。
+#                       詳細は docs/dds-localhost.md
+#
 # 開発モード (シミュレータの Python を手動実行したいとき):
 #   make dev up     コンテナだけバックグラウンド起動 (シミュレータは自動起動しない)
 #   make dev run    同じ端末でシミュレータを実行 (ログ・エラーがここに出る)
@@ -51,8 +56,31 @@ else
   endif
 endif
 
+# --- localhost modifier -----------------------------------------------------
+# 'localhost' を付けると DDS を loopback (lo) に閉じたプロファイルで起動する。
+# 点群・画像を物理NICからマルチキャストで撒かなくなる (理由: docs/dds-localhost.md)。
+#   make up localhost
+# 既定 (無指定) は従来どおり assets/cyclonedds.xml (マルチキャスト版)。
+LOCALHOST := $(if $(filter localhost,$(MAKECMDGOALS)),1,)
+ifeq ($(LOCALHOST),1)
+  # 'localhost' と明示された以上、環境変数より優先させる (:= で上書き)。
+  CYCLONEDDS_URI := file:///cyclonedds.localhost.xml
+else
+  CYCLONEDDS_URI ?= file:///cyclonedds.xml
+endif
+# Makefile 内で定義した変数は自動では export されず、compose の
+# ${CYCLONEDDS_URI} 展開に届かないので明示的に export する。
+export CYCLONEDDS_URI
+
+# Isaac 側と Apptainer 側で必ず一致させる値。make up ROS_DOMAIN_ID=31 で変えられる。
+ROS_DOMAIN_ID ?= 26
+export ROS_DOMAIN_ID
+
+# 検証用にコンテナ内パス -> ホスト上の assets/ のファイル名へ戻す
+DDS_FILE := $(patsubst file:///%,%,$(CYCLONEDDS_URI))
+
 # --- Targets ----------------------------------------------------------------
-.PHONY: help dev build up down logs ps exec ros2 isaacsim run tune tune-apply
+.PHONY: help dev localhost dds-check build up down logs ps exec ros2 isaacsim run tune tune-apply
 .DEFAULT_GOAL := help
 
 # RViz2 は既定でオフ。見たいときだけ `make up RVIZ=1`。
@@ -115,7 +143,7 @@ ENABLE_STEREO_CAMERAS ?= 0
 CAMERA_TUNE ?=
 
 help:
-	@echo "Usage: make <action> [dev] [TIME=<秒>]"
+	@echo "Usage: make <action> [dev] [localhost] [TIME=<秒>]"
 	@echo ""
 	@echo "Actions:"
 	@echo "  build     Build images"
@@ -128,10 +156,16 @@ help:
 	@echo "  tune      観戦カメラの位置・画角を GUI で調整する (録画しない)"
 	@echo "  tune-apply  tune のカメラ調整結果を configs/placement.yaml に反映する"
 	@echo ""
+	@echo "Modifiers (アクションと並べて書く):"
+	@echo "  localhost  DDS を loopback に閉じる (例: make up localhost)"
+	@echo "  dev        シミュレータを自動起動せずコンテナだけ立てる"
+	@echo ""
 	@echo "Examples:"
 	@echo "  make build"
 	@echo "  make up"
 	@echo "  make up RVIZ=1    # RViz2 も起動する (既定はオフ)"
+	@echo "  make up localhost # DDS を loopback に閉じる (LANへのマルチキャスト漏洩対策)"
+	@echo "  make up localhost ROS_DOMAIN_ID=31   # Apptainer 側と同じ値を指定する"
 	@echo "  make up BASE_TRAJ_P_GAIN=1.0   # whole_body台車FBを弱める"
 	@echo "  make up BASE_DIRECT_DRIVE=0    # 物理車輪駆動へ戻す"
 	@echo "  make up TIME=600   # 競技モード: 600秒(シミュ内時間)で自動終了。"
@@ -148,11 +182,34 @@ help:
 dev:
 	@:
 
+# 同上。'make up localhost' の 'localhost' を no-op ターゲットとして受ける。
+localhost:
+	@:
+
+# 起動前に DDS プロファイルの指定を検証する。
+# CYCLONEDDS_URI を手打ちして打ち間違えると、Cyclone は
+# "can't open configuration file ..." を1行出すだけで先へ進み、その後
+# rmw_create_node が失敗 -> Isaac 側は rclpy.node.Node() で例外 -> segfault
+# という極めて分かりにくい落ち方をする。ここでコンテナを起動する前に弾く。
+dds-check:
+	@case '$(CYCLONEDDS_URI)' in \
+	  file:///cyclonedds.xml|file:///cyclonedds.localhost.xml) ;; \
+	  *) echo '❌ CYCLONEDDS_URI が不正です: $(CYCLONEDDS_URI)'; \
+	     echo '   compose が bind mount しているのは次の2つだけです:'; \
+	     echo '     file:///cyclonedds.xml            (既定/マルチキャスト版)'; \
+	     echo '     file:///cyclonedds.localhost.xml  (make up localhost)'; \
+	     echo '   手打ちせず "make up" / "make up localhost" を使ってください'; \
+	     exit 1;; \
+	esac
+	@test -f 'assets/$(DDS_FILE)' || { \
+	  echo '❌ assets/$(DDS_FILE) が見つかりません'; exit 1; }
+	@echo '🔧 DDS: $(CYCLONEDDS_URI)   ROS_DOMAIN_ID=$(ROS_DOMAIN_ID)'
+
 build:
 	$(COMPOSE) build
 
 # TIME=<秒> を付けると競技モード (環境変数 TASK_TIME で isaacsim コンテナに渡る)。
-up:
+up: dds-check
 	TASK_TIME=$(TIME) GRASP_ATTACH=$(GRASP) USE_RVIZ=$(USE_RVIZ) BASE_DIRECT_DRIVE=$(BASE_DIRECT_DRIVE) BASE_TRAJ_P_GAIN=$(BASE_TRAJ_P_GAIN) BASE_TRAJ_D_GAIN=$(BASE_TRAJ_D_GAIN) BASE_TRAJ_I_GAIN=$(BASE_TRAJ_I_GAIN) BASE_TRAJ_I_LINEAR_LIMIT=$(BASE_TRAJ_I_LINEAR_LIMIT) BASE_TRAJ_I_ANGULAR_LIMIT=$(BASE_TRAJ_I_ANGULAR_LIMIT) BASE_CMD_TAU=$(BASE_CMD_TAU) BASE_WHEEL_ACCEL_LIMIT=$(BASE_WHEEL_ACCEL_LIMIT) BASE_STEER_ACCEL_LIMIT=$(BASE_STEER_ACCEL_LIMIT) BASE_LINEAR_ACCEL_LIMIT=$(BASE_LINEAR_ACCEL_LIMIT) BASE_ANGULAR_ACCEL_LIMIT=$(BASE_ANGULAR_ACCEL_LIMIT) BASE_WHEEL_DRIVE_DAMPING=$(BASE_WHEEL_DRIVE_DAMPING) BASE_PASSIVE_WHEEL_DAMPING=$(BASE_PASSIVE_WHEEL_DAMPING) BASE_WHEEL_DRIVE_MAX_FORCE=$(BASE_WHEEL_DRIVE_MAX_FORCE) BASE_STEER_DRIVE_DAMPING=$(BASE_STEER_DRIVE_DAMPING) BASE_STEER_DRIVE_MAX_FORCE=$(BASE_STEER_DRIVE_MAX_FORCE) BASE_DIRECT_JOINT_DAMPING=$(BASE_DIRECT_JOINT_DAMPING) BASE_DIRECT_JOINT_MAX_FORCE=$(BASE_DIRECT_JOINT_MAX_FORCE) BASE_DIRECT_ROOT_DAMPING=$(BASE_DIRECT_ROOT_DAMPING) BASE_BRAKE=$(BASE_BRAKE) BASE_BRAKE_ENGAGE_LINEAR=$(BASE_BRAKE_ENGAGE_LINEAR) BASE_BRAKE_ENGAGE_ANGULAR=$(BASE_BRAKE_ENGAGE_ANGULAR) BASE_BRAKE_CREEP_SPEED=$(BASE_BRAKE_CREEP_SPEED) BASE_BRAKE_CREEP_ANGULAR=$(BASE_BRAKE_CREEP_ANGULAR) BASE_BRAKE_K=$(BASE_BRAKE_K) BASE_BRAKE_C=$(BASE_BRAKE_C) BASE_BRAKE_MAX_FORCE=$(BASE_BRAKE_MAX_FORCE) BASE_BRAKE_ANGULAR_K=$(BASE_BRAKE_ANGULAR_K) BASE_BRAKE_ANGULAR_C=$(BASE_BRAKE_ANGULAR_C) BASE_BRAKE_MAX_TORQUE=$(BASE_BRAKE_MAX_TORQUE) BASE_SETPOINT_MAX_LAG=$(BASE_SETPOINT_MAX_LAG) BASE_SETPOINT_MAX_LAG_ANGULAR=$(BASE_SETPOINT_MAX_LAG_ANGULAR) BASE_GOAL_VELOCITY_TOLERANCE=$(BASE_GOAL_VELOCITY_TOLERANCE) BASE_JOINT_BRAKE=$(BASE_JOINT_BRAKE) BASE_DIAG=$(BASE_DIAG) CAMERA_FRAME_SKIP=$(CAMERA_FRAME_SKIP) RENDER_EVERY_N_STEPS=$(RENDER_EVERY_N_STEPS) ENABLE_STEREO_CAMERAS=$(ENABLE_STEREO_CAMERAS) CAMERA_TUNE=$(CAMERA_TUNE) $(COMPOSE) up $(UP_FLAGS)
 
 down:
@@ -205,8 +262,10 @@ run:
 #   recordings/tune/arena_cameras.yaml  <- configs/placement.yaml に貼る設定
 #   recordings/tune/preview.png         <- 実際に録画される 2x2 の絵
 # (dev モードで使いたいときは `make dev up CAMERA_TUNE=1` + `make dev run`)
+# 子 make には MAKECMDGOALS の 'localhost' が伝わらないので、選ばれたプロファイルを
+# コマンドライン変数として明示的に引き継ぐ (make tune localhost を効かせるため)。
 tune:
-	@$(MAKE) up CAMERA_TUNE=1
+	@$(MAKE) up CAMERA_TUNE=1 CYCLONEDDS_URI=$(CYCLONEDDS_URI)
 
 # tune の調整結果 (recordings/tune/arena_cameras.yaml) を
 # configs/placement.yaml に反映する。make tune だけでは反映されない

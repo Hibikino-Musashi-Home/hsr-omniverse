@@ -36,13 +36,17 @@ Wi-Fi はマルチキャストを最低基本レート・非集約で送るた�
 
 ```bash
 cd ~/hsr-omniverse
-CYCLONEDDS_URI=file:///cyclonedds.localhost.xml make up
+make up localhost
 ```
+
+`localhost` は `dev` と同じモディファイアで、アクションと並べて書く。付けると
+`CYCLONEDDS_URI=file:///cyclonedds.localhost.xml` を Makefile が組み立てて渡す。
+**URI を手打ちする必要はない。**
 
 `ROS_DOMAIN_ID` を変える場合は同時に指定する（既定 26）:
 
 ```bash
-ROS_DOMAIN_ID=31 CYCLONEDDS_URI=file:///cyclonedds.localhost.xml make up
+make up localhost ROS_DOMAIN_ID=31
 ```
 
 ### 2. Apptainer 側（`hma2_ws` の学生環境）
@@ -115,6 +119,14 @@ CYCLONEDDS_URI='<CycloneDDS><Domain id="any"><Tracing>
 
 ## ハマりどころ
 
+- **`CYCLONEDDS_URI` を手打ちしない。`make up localhost` を使う。** 打ち間違えても
+  Cyclone は `can't open configuration file ...` を 1 行出すだけで先へ進んでしまう。
+  その後 `rmw_create_node: failed to create domain` → `rcl node's rmw handle is invalid`
+  → Isaac 側は `hsr.py` の `rclpy.node.Node()` で例外 → **segfault**、という
+  原因の分かりにくい落ち方をする（実例: `file:=///cyclonedds.localhot.xml` という
+  `=` 混入 + `s` 抜けの 2 箇所ミスで両コンテナが exit 1）。
+  `make up localhost` なら URI は Makefile が組み立て、不正な値は
+  コンテナ起動前に `make` が弾く。
 - **`5e_isaac_mode.sh` を自分で source しない。** あれは `ROS_DOMAIN_ID` を `config.toml` の
   値（26）に戻し、`CYCLONEDDS_URI` もマルチキャスト版に戻す。手で export した値が黙って巻き戻る。
 - **`hma2_ws` 標準の `5a_default/cyclonedds.localhost_only.xml` は使えない。**
@@ -146,5 +158,5 @@ IGMP snooping が無ければ各PCが他19台分（約 1.9 Gbps）を受信し�
 
 ## 元に戻す
 
-`CYCLONEDDS_URI` を指定せずに `make up` すれば従来どおり `assets/cyclonedds.xml`（マルチキャスト版）が使われる。
+`localhost` を付けずに `make up` すれば従来どおり `assets/cyclonedds.xml`（マルチキャスト版）が使われる。
 Apptainer 側も `source ~/hma2_ws/5e_isaac_mode.sh` に戻す。

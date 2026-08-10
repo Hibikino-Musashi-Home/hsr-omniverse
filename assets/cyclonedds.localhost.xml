@@ -14,11 +14,14 @@
     Wi-Fi はマルチキャストを最低基本レートで送るので AP の airtime が飽和する
     (実測で Wi-Fi が 500 Mbps -> 50 Mbps に低下)。
 
-  使い方 (既定の cyclonedds.xml は残してあるので env で切り替える):
-    CYCLONEDDS_URI=file:///cyclonedds.localhost.xml docker compose ... up
-    ホスト側の ROS 2 ノードからは
-    CYCLONEDDS_URI=file:///home/roboworks/hsr-omniverse/assets/cyclonedds.localhost.xml
-    ※ コンテナとホストの両方に設定しないと漏洩は止まらない。
+  使い方 (既定の cyclonedds.xml は残してあるので起動時に切り替える):
+    make up localhost
+    ※ CYCLONEDDS_URI は Makefile が組み立てるので手打ちしないこと。
+      打ち間違えても Cyclone は警告1行で先へ進み、最終的に Isaac が
+      segfault するという分かりにくい落ち方をする。
+    Apptainer 側 (hma2_ws) からは
+    source /home/roboworks/hsr-omniverse/scripts/isaac_localhost_mode.sh [ROS_DOMAIN_ID]
+    ※ コンテナと Apptainer の両方に設定しないと漏洩は止まらない。
 
   複数PCで ROS 通信する必要が出たときは、この設定は使えない。
   既定の cyclonedds.xml に戻したうえで <AllowMulticast>spdp</AllowMulticast>

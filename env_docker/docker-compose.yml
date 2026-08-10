@@ -24,10 +24,12 @@ services:
       # 揃っていないと ROS 2 は互いを一切見つけられない。
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-26}
     volumes:
-      # DDS 設定を live マウント (イメージにも COPY 済みなので外せば焼き込み版が使われる)。
-      # 既定は従来どおり /cyclonedds.xml。DDS を loopback に閉じたいときは
-      #   CYCLONEDDS_URI=file:///cyclonedds.localhost.xml make up
+      # DDS 設定を live マウント。既定は従来どおり /cyclonedds.xml で、
+      # DDS を loopback に閉じたいときは
+      #   make up localhost
       # で切り替える (再ビルド不要)。理由は assets/cyclonedds.localhost.xml の先頭コメント参照。
+      # ※ イメージに COPY 済みなのは cyclonedds.xml だけ。localhost 版はこの bind mount
+      #    でしか存在しないので、外すと CYCLONEDDS_URI が解決できなくなる。
       - ../assets/cyclonedds.xml:/cyclonedds.xml:ro
       - ../assets/cyclonedds.localhost.xml:/cyclonedds.localhost.xml:ro
       - ../launch/hsr.launch.py:/hsr.launch.py:ro
@@ -132,7 +134,7 @@ services:
       # 学生環境と揃える (上の ros2 サービスと同じ値にすること)
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-26}
     volumes:
-      # DDS 設定を live マウント (ros2 サービスと同じ。CYCLONEDDS_URI で切り替える)
+      # DDS 設定を live マウント (ros2 サービスと同じ。`make up localhost` で切り替わる)
       - ../assets/cyclonedds.xml:/cyclonedds.xml:ro
       - ../assets/cyclonedds.localhost.xml:/cyclonedds.localhost.xml:ro
       - ../scripts/launch_isaacsim.py:/app/launch_isaacsim.py:ro
