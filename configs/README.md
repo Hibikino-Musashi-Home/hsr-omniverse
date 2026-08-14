@@ -8,6 +8,7 @@
 | ファイル | 用途 |
 |---|---|
 | [`placement.yaml`](./placement.yaml) | シーン初期配置 (`robot` ロボット位置 / `objects` YCB物体配置) をまとめた設定 |
+| [`placement.compe.yaml`](./placement.compe.yaml) | `make up ... compe` 専用のYCB候補と配置スロット |
 | [`dressing.yaml`](./dressing.yaml) | シーン演出 (床テクスチャ + 周囲背景画像 + 照明) のプリセット定義 |
 
 ## クイックスタート
