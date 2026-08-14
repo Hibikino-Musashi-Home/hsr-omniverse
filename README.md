@@ -84,7 +84,7 @@ xhost local:
 make build          # 全イメージをビルド (初回のみ。30分〜1時間程度)
 make up             # シミュレータ一式を起動
 make up TIME=600    # 競技モード: 600秒(シミュ内時間)で自動終了し、録画を保存
-make up localhost compe          # 競技用：ランダム配置
+make up compe       # 競技用：ランダム配置
 make tune           # 録画カメラ4台の位置・画角を GUI で見ながら調整する
 make tune-apply     # tune の調整結果を configs/placement.yaml に反映する
 make down           # 停止・コンテナ削除
