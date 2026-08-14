@@ -664,11 +664,49 @@ _BASE_JOINT_BRAKE = _env_bool('BASE_JOINT_BRAKE', True)
 # ときは anchor を作らない。
 _BASE_KINEMATIC_DRIVE = (
     _BASE_DIRECT_DRIVE and _env_bool('BASE_KINEMATIC_DRIVE', True))
-# 走行中に剛体速度を直接書き込むか。0 にすると平面ジョイントのドライブ単独になる
-# (位置ドライブと速度書き込みの二重制御を切り分けるための実験用)。
+# 走行中に articulation root の剛体速度を直接書き込むか。
+# kinematic 駆動時は「anchor を跳ばした分と同じ速度」を書いて位置と速度を整合
+# させるために使う (これを止めると FixedJoint の逆向きインパルスで arm_flex が
+# 振られる)。非 kinematic 時は 0 にすると平面ジョイントのドライブ単独になる。
 _BASE_VELOCITY_WRITE = _env_bool('BASE_VELOCITY_WRITE', True)
 # 純回転のときだけ速度書き込みを省く (回転は角度ドライブ単独で出す)。
 _BASE_ROT_NO_VELOCITY_WRITE = _env_bool('BASE_ROT_NO_VELOCITY_WRITE', False)
+# kinematic anchor は衝突形状を持たず、base_footprint を breakForce=1e20 の
+# FixedJoint で溶接するので、台車は実効的に無限質量になり壁の接触拘束が勝てない
+# (壁をすり抜け、PhysX が発散して odom が NaN 化する)。そこで anchor を進める
+# 前に PhysX のシーンクエリで球スイープを掛け、貫通する分だけ目標をクランプする。
+_BASE_KINEMATIC_COLLISION = _env_bool('BASE_KINEMATIC_COLLISION', True)
+# スイープに使う台車の半径 [m]。HSR の台車は半径 0.23m 前後で、前後バンパーを
+# 含めた外周を覆うため少し大きめを既定にする。
+_BASE_COLLISION_RADIUS = max(
+    0.0, _env_float('BASE_COLLISION_RADIUS', 0.24))
+# スイープ球の中心高さ [m]。球の下端 (中心 - 半径) が床より上に来る値にする。
+# 既定 0.25 なら半径 0.24 の球の下端が z=0.01 になり、床を拾わない。
+_BASE_COLLISION_HEIGHT = max(
+    0.0, _env_float('BASE_COLLISION_HEIGHT', 0.25))
+# 障害物の手前に残す余裕 [m]。0 にすると接触状態で止まる。
+_BASE_COLLISION_MARGIN = max(
+    0.0, _env_float('BASE_COLLISION_MARGIN', 0.01))
+# kinematic anchor をどう動かすか。
+#   'usd' : anchor prim の USD xform を毎ステップ書き、PhysX に kinematic target
+#           として解釈させる。PhysX が「1ステップかけて目標へ動く」扱いにするので
+#           anchor 自身が速度を持ち、FixedJoint で繋がった articulation も滑らかに
+#           運ばれる。
+#   'dc'  : dc.set_rigid_body_pose で瞬間移動させる (= PxRigidActor::setGlobalPose)。
+#           anchor の速度は 0 のままなので、FixedJoint が位置誤差を毎ステップ
+#           インパルスで埋めることになり、その衝撃が腕まで伝わって arm_flex が
+#           落ちる (実測 1.493 rad)。
+# usd が効かない環境 (USD→PhysX の同期が無効など) では台車が動かなくなるので、
+# 追従できていないことを検出したら自動的に dc へ戻す。
+_BASE_KINEMATIC_ANCHOR_MODE = (
+    os.environ.get('BASE_KINEMATIC_ANCHOR_MODE', 'usd').strip().lower()
+    or 'usd')
+# arm_flex のドライブ力上限 [N*m]。重力たわみを支えるだけなら 100 で足りるが、
+# 台車を運ぶ拘束から入る外乱に負けると、maxVelocity=1.2rad/s で飽和したまま
+# 落ち続ける。余裕を持たせる。台車は kinematic に位置決めされているので、
+# 反力が増えても車体は揺すられない。
+_ARM_FLEX_MAX_FORCE = max(
+    1.0, _env_float('ARM_FLEX_MAX_FORCE', 300.0))
 # 物体が落ち着いた頃に実位置をログへ出す (把持目標を決めるのに使う)。
 _OBJECT_POSE_REPORT = _env_bool('OBJECT_POSE_REPORT', True)
 _OBJECT_POSE_REPORT_AT = max(
@@ -2143,7 +2181,7 @@ class hsr:
             # 「目標未達」で中断していた。剛性を上げてたわみを 1/2 以下にする。
             # 台車は平面ジョイントのドライブで固定されるので、反力が増えても
             # 車体が揺すられることはない。
-            'arm_flex_joint': ('angular', 1200.0, 200.0, 100.0),
+            'arm_flex_joint': ('angular', 1200.0, 200.0, _ARM_FLEX_MAX_FORCE),
             'arm_roll_joint': ('angular', 200.0, 30.0, 100.0),
             'wrist_flex_joint': ('angular', 200.0, 30.0, 100.0),
             'wrist_roll_joint': ('angular', 100.0, 20.0, 100.0),
@@ -2859,6 +2897,13 @@ class hsr:
         _p('base: brake_engage=(%.3f m, %.3f rad) creep=(%.3f m/s, %.3f rad/s)'
            % (_BASE_BRAKE_ENGAGE_LINEAR, _BASE_BRAKE_ENGAGE_ANGULAR,
               _BASE_BRAKE_CREEP_SPEED, _BASE_BRAKE_CREEP_ANGULAR))
+        if _BASE_KINEMATIC_DRIVE:
+            _p('base: kinematic_collision=%s radius=%.3fm height=%.3fm '
+               'margin=%.3fm'
+               % (_BASE_KINEMATIC_COLLISION, _BASE_COLLISION_RADIUS,
+                  _BASE_COLLISION_HEIGHT, _BASE_COLLISION_MARGIN))
+            _p('base: kinematic_anchor_mode=%s'
+               % (_BASE_KINEMATIC_ANCHOR_MODE,))
         _p('===============================================')
 
     def _apply_base_brake(self, target, dt):
@@ -2961,15 +3006,121 @@ class hsr:
         self._base_setpoint = (
             pose.x + lag_x, pose.y + lag_y, pose.ang + lag_r)
 
+    def _kinematic_odom_to_world(self, target):
+        """odom 系の平面姿勢 (x, y, yaw) を anchor の world 姿勢へ変換する。
+
+        GT odom の基準変換を逆にたどる。基準取得前だけは現在の base_footprint
+        から差分で求めるので、そのフレームだけ dc への問い合わせが要る。
+        """
+        ref = getattr(self, '_gt_ref', None)
+        if ref is not None:
+            rwx, rwy, rwyaw, rox, roy, royaw = ref
+            odx = target[0] - rox
+            ody = target[1] - roy
+            coso = math.cos(royaw)
+            sino = math.sin(royaw)
+            relx = odx * coso + ody * sino
+            rely = -odx * sino + ody * coso
+            cosw = math.cos(rwyaw)
+            sinw = math.sin(rwyaw)
+            world_x = rwx + relx * cosw - rely * sinw
+            world_y = rwy + relx * sinw + rely * cosw
+            world_yaw = rwyaw + math.atan2(
+                math.sin(target[2] - royaw),
+                math.cos(target[2] - royaw),
+            )
+            return world_x, world_y, world_yaw
+
+        pose = self.odometry_estimator.pose
+        body = getattr(self, '_gt_body', None)
+        if not body:
+            body = self.dc.get_rigid_body(
+                self.stage_path + self.prefix + '/base_footprint')
+        current = self.dc.get_rigid_body_pose(body)
+        current_yaw = euler_from_quaternion(
+            current.r.x, current.r.y, current.r.z, current.r.w)[2]
+        frame_yaw = current_yaw - pose.ang
+        dx = target[0] - pose.x
+        dy = target[1] - pose.y
+        world_x = current.p.x + (
+            dx * math.cos(frame_yaw) - dy * math.sin(frame_yaw))
+        world_y = current.p.y + (
+            dx * math.sin(frame_yaw) + dy * math.cos(frame_yaw))
+        world_yaw = current_yaw + math.atan2(
+            math.sin(target[2] - pose.ang),
+            math.cos(target[2] - pose.ang),
+        )
+        return world_x, world_y, world_yaw
+
+    def _anchor_xform_api(self):
+        """anchor prim の XformCommonAPI (生成時と同じ translate + rotateXYZ)。"""
+        api = getattr(self, '_base_anchor_xform_api', None)
+        if api is not None:
+            return api
+        prim = stage.get_current_stage().GetPrimAtPath(
+            self._base_kinematic_anchor_path)
+        if not prim or not prim.IsValid():
+            raise RuntimeError(
+                'kinematic anchor prim is unavailable: %s'
+                % self._base_kinematic_anchor_path)
+        api = UsdGeom.XformCommonAPI(prim)
+        self._base_anchor_xform_api = api
+        return api
+
+    def _verify_anchor_tracking(self, anchor, world_x, world_y):
+        """usd モードで anchor が実際に追従しているかを起動直後だけ確かめる。
+
+        USD→PhysX の同期が効かない環境では台車が全く動かなくなるので、指令した
+        変位に対して実変位が出ていないことが続いたら dc モードへ戻す。
+        """
+        if getattr(self, '_base_anchor_mode_verified', False):
+            return
+        previous_cmd = getattr(self, '_base_anchor_cmd_prev', None)
+        previous_actual = getattr(self, '_base_anchor_actual_prev', None)
+        self._base_anchor_cmd_prev = (world_x, world_y)
+        try:
+            pose = self.dc.get_rigid_body_pose(anchor)
+            actual = (float(pose.p.x), float(pose.p.y))
+        except Exception:
+            return
+        self._base_anchor_actual_prev = actual
+        if previous_cmd is None or previous_actual is None:
+            return
+        commanded = math.hypot(
+            world_x - previous_cmd[0], world_y - previous_cmd[1])
+        if commanded < 1e-4:
+            return
+        moved = math.hypot(
+            actual[0] - previous_actual[0], actual[1] - previous_actual[1])
+        if moved >= 0.1 * commanded:
+            self._base_anchor_mode_verified = True
+            return
+        fails = getattr(self, '_base_anchor_track_fails', 0) + 1
+        self._base_anchor_track_fails = fails
+        if fails >= 30:
+            self._base_anchor_mode = 'dc'
+            self._base_anchor_mode_verified = True
+            self._warn_once(
+                'kinematic-anchor-mode',
+                'USD 経由の kinematic target が反映されないため、'
+                'anchor の駆動を dc (瞬間移動) へ戻しました',
+            )
+
     def _set_kinematic_base_pose(self, target):
-        """odom の目標姿勢へ kinematic anchor を移す。"""
+        """odom の目標姿勢へ kinematic anchor を移す。
+
+        anchor は kinematic body なので速度は書けない (PhysX の
+        PxRigidDynamic::setLinearVelocity は "Body must be non-kinematic!" で
+        弾き、1000 件でシミュレーション自体が停止する)。代わりに usd モードでは
+        USD の xform を書いて PhysX に kinematic target として解釈させ、PhysX 自身
+        に速度を導出させる。
+        """
         if not all(math.isfinite(float(value)) for value in target):
             self._warn_once(
                 'kinematic-nonfinite-target',
                 '非有限の台車目標を破棄しました: %r' % (target,),
             )
             return False
-        pose = self.odometry_estimator.pose
         try:
             anchor = getattr(self, '_base_kinematic_anchor', None)
             if not anchor:
@@ -2979,55 +3130,157 @@ class hsr:
                     raise RuntimeError('kinematic anchor handle is unavailable')
                 self._base_kinematic_anchor = anchor
 
-            # GT odom の基準変換を逆にたどり、odom 目標を world の anchor 姿勢へ
-            # 変換する。基準取得前だけは現在の base_footprint から差分で求める。
-            ref = getattr(self, '_gt_ref', None)
-            if ref is not None:
-                rwx, rwy, rwyaw, rox, roy, royaw = ref
-                odx = target[0] - rox
-                ody = target[1] - roy
-                coso = math.cos(royaw)
-                sino = math.sin(royaw)
-                relx = odx * coso + ody * sino
-                rely = -odx * sino + ody * coso
-                cosw = math.cos(rwyaw)
-                sinw = math.sin(rwyaw)
-                world_x = rwx + relx * cosw - rely * sinw
-                world_y = rwy + relx * sinw + rely * cosw
-                world_yaw = rwyaw + math.atan2(
-                    math.sin(target[2] - royaw),
-                    math.cos(target[2] - royaw),
+            world_x, world_y, world_yaw = self._kinematic_odom_to_world(target)
+            # _gt_ref が NaN で汚染されると target が有限でもここが NaN になる。
+            # そのまま PhysX へ書くと Invalid PhysX transform でシーンごと発散
+            # するので、書く直前にもう一度検査する。
+            if not all(math.isfinite(float(value))
+                       for value in (world_x, world_y, world_yaw)):
+                self._warn_once(
+                    'kinematic-nonfinite-world',
+                    '非有限の台車 world 姿勢を破棄しました: %r'
+                    % ((world_x, world_y, world_yaw),),
                 )
-            else:
-                body = getattr(self, '_gt_body', None)
-                if not body:
-                    body = self.dc.get_rigid_body(
-                        self.stage_path + self.prefix + '/base_footprint')
-                current = self.dc.get_rigid_body_pose(body)
-                current_yaw = euler_from_quaternion(
-                    current.r.x, current.r.y, current.r.z, current.r.w)[2]
-                frame_yaw = current_yaw - pose.ang
-                dx = target[0] - pose.x
-                dy = target[1] - pose.y
-                world_x = current.p.x + (
-                    dx * math.cos(frame_yaw) - dy * math.sin(frame_yaw))
-                world_y = current.p.y + (
-                    dx * math.sin(frame_yaw) + dy * math.cos(frame_yaw))
-                world_yaw = current_yaw + math.atan2(
-                    math.sin(target[2] - pose.ang),
-                    math.cos(target[2] - pose.ang),
-                )
+                return False
 
-            transform = _dynamic_control.Transform()
-            transform.p = (float(world_x), float(world_y), 0.0)
-            half = 0.5 * world_yaw
-            transform.r = (0.0, 0.0, math.sin(half), math.cos(half))
-            self.dc.set_rigid_body_pose(anchor, transform)
+            mode = getattr(self, '_base_anchor_mode', None)
+            if mode is None:
+                mode = _BASE_KINEMATIC_ANCHOR_MODE
+                self._base_anchor_mode = mode
+            if mode == 'usd':
+                api = self._anchor_xform_api()
+                api.SetTranslate(
+                    Gf.Vec3d(float(world_x), float(world_y), 0.0))
+                api.SetRotate(
+                    Gf.Vec3f(0.0, 0.0, math.degrees(float(world_yaw))),
+                    UsdGeom.XformCommonAPI.RotationOrderXYZ,
+                )
+                self._verify_anchor_tracking(anchor, world_x, world_y)
+            else:
+                transform = _dynamic_control.Transform()
+                transform.p = (float(world_x), float(world_y), 0.0)
+                half = 0.5 * world_yaw
+                transform.r = (0.0, 0.0, math.sin(half), math.cos(half))
+                self.dc.set_rigid_body_pose(anchor, transform)
         except Exception as exc:
             self._warn_once(
                 'kinematic-drive',
                 '決定論的な台車姿勢更新に失敗; 従来制御へ戻します: %s' % exc,
             )
+            return False
+        return True
+
+    def _physx_scene_query(self):
+        """PhysX のシーンクエリインタフェース。使えなければ None。"""
+        if hasattr(self, '_physx_query_iface'):
+            return self._physx_query_iface
+        query = None
+        try:
+            from omni.physx import get_physx_scene_query_interface
+            query = get_physx_scene_query_interface()
+        except Exception as exc:
+            self._warn_once(
+                'kinematic-collision-iface',
+                'PhysX シーンクエリを取得できず、台車の衝突クランプを無効化'
+                'します: %s' % exc,
+            )
+        self._physx_query_iface = query
+        return query
+
+    def _kinematic_sweep_scale(self, start_world, end_world):
+        """start→end の並進を障害物の手前で止める比 (0.0-1.0) を返す。
+
+        anchor は衝突形状を持たず、台車は FixedJoint で無限質量に溶接されている
+        ため、PhysX の接触拘束では止まらない。代わりに台車の外周を覆う球を
+        スイープし、貫通する分だけ目標の前進量を削る。回転は球スイープでは
+        検出できないので通す。
+        """
+        dx = float(end_world[0]) - float(start_world[0])
+        dy = float(end_world[1]) - float(start_world[1])
+        distance = math.hypot(dx, dy)
+        if distance <= 1e-9 or _BASE_COLLISION_RADIUS <= 0.0:
+            return 1.0
+        query = self._physx_scene_query()
+        if query is None:
+            return 1.0
+
+        origin = (float(start_world[0]), float(start_world[1]),
+                  _BASE_COLLISION_HEIGHT)
+        direction = (dx / distance, dy / distance, 0.0)
+        # None のまま帰ってきたら「進路上に何も無い」= クランプしない。
+        limit = [None]
+
+        def _report(hit):
+            # SceneQueryHitObject の属性は rigid_body / collision (snake_case)。
+            # 壁は静的コライダーなので rigid_body は空で、collision だけが埋まる。
+            path = str(getattr(hit, 'rigid_body', '')
+                       or getattr(hit, 'collision', ''))
+            # 自分自身のコライダーは無視する。初期接触 (distance≈0) も無視:
+            # 壁際で止まっているときに脱出方向まで塞いでしまうため。余裕
+            # (_BASE_COLLISION_MARGIN) を残して停めるので、押し込みは次の
+            # ステップのスイープが正の距離で捕まえる。
+            if path == '/hsrb' or path.startswith('/hsrb/'):
+                return True
+            hit_distance = float(getattr(hit, 'distance', 0.0))
+            if hit_distance <= 1e-4:
+                return True
+            if limit[0] is None or hit_distance < limit[0]:
+                limit[0] = hit_distance
+            return True
+
+        if not self._sweep_sphere(
+                query, _BASE_COLLISION_RADIUS, origin, direction, distance,
+                _report):
+            return 1.0
+        if limit[0] is None:
+            return 1.0
+
+        allowed = min(distance, max(0.0, limit[0] - _BASE_COLLISION_MARGIN))
+        return allowed / distance
+
+    def _sweep_sphere(self, query, radius, origin, direction, distance,
+                      report):
+        """全ヒットを report へ渡す球スイープ。成功したら True。
+
+        Isaac Sim 4.5 の PhysXSceneQuery は
+        sweep_sphere_all(radius, origin, dir, distance, reportFn, bothSides)
+        で、ベクトルは carb.Float3。旧名 sweep_sphere も一応試す。
+        """
+        fn = getattr(self, '_sweep_sphere_fn', None)
+        if fn is None:
+            for name in ('sweep_sphere_all', 'sweep_sphere'):
+                fn = getattr(query, name, None)
+                if fn is not None:
+                    break
+            if fn is None:
+                self._warn_once(
+                    'kinematic-collision-sweep',
+                    '球スイープ API が見つからず、台車の衝突クランプを無効化'
+                    'します (利用可能: %s)'
+                    % ([n for n in dir(query) if 'sweep' in n],),
+                )
+                self._physx_query_iface = None
+                return False
+            self._sweep_sphere_fn = fn
+
+        try:
+            import carb
+            fn(
+                float(radius),
+                carb.Float3(*origin),
+                carb.Float3(*direction),
+                float(distance),
+                report,
+                False,
+            )
+        except Exception as exc:
+            self._warn_once(
+                'kinematic-collision-sweep',
+                '台車の衝突スイープに失敗し、クランプを無効化します: %s' % exc,
+            )
+            # 毎ステップ例外を投げ続けないよう、以後はクランプを止める。
+            self._physx_query_iface = None
+            self._sweep_sphere_fn = None
             return False
         return True
 
@@ -3057,26 +3310,69 @@ class hsr:
             self._base_direct_pose = None
             self._base_kinematic_velocity = (0.0, 0.0, 0.0)
             return True
-        target = getattr(self, '_base_direct_pose', None)
-        if target is None:
-            target = (pose.x, pose.y, pose.ang)
-        target = (
-            target[0] + cmd.dot_x * dt,
-            target[1] + cmd.dot_y * dt,
+        previous = getattr(self, '_base_direct_pose', None)
+        if previous is None:
+            previous = (pose.x, pose.y, pose.ang)
+        candidate = (
+            previous[0] + cmd.dot_x * dt,
+            previous[1] + cmd.dot_y * dt,
             math.atan2(
-                math.sin(target[2] + cmd.dot_r * dt),
-                math.cos(target[2] + cmd.dot_r * dt),
+                math.sin(previous[2] + cmd.dot_r * dt),
+                math.cos(previous[2] + cmd.dot_r * dt),
             ),
         )
+
+        # world 系での前進を求め、障害物を貫通する分だけ削る。world 変換には
+        # _gt_ref が要るので、基準取得前 (起動直後の 1 フレーム) は素通しする。
+        scale = 1.0
+        if _BASE_KINEMATIC_COLLISION and getattr(self, '_gt_ref', None):
+            try:
+                scale = self._kinematic_sweep_scale(
+                    self._kinematic_odom_to_world(previous),
+                    self._kinematic_odom_to_world(candidate),
+                )
+            except Exception as exc:
+                self._warn_once(
+                    'kinematic-collision',
+                    '台車の衝突クランプに失敗し、素通しします: %s' % exc,
+                )
+                scale = 1.0
+
+        if scale < 1.0:
+            target = (
+                previous[0] + (candidate[0] - previous[0]) * scale,
+                previous[1] + (candidate[1] - previous[1]) * scale,
+                candidate[2],
+            )
+        else:
+            target = candidate
+
         if not self._set_kinematic_base_pose(target):
             self._base_direct_pose = None
             self._base_kinematic_velocity = (0.0, 0.0, 0.0)
             return False
 
+        # クランプ後の姿勢を目標として持ち越す。これが kinematic 経路の
+        # アンチワインドアップで、壁の向こうへ目標が積分され続けるのと、
+        # 解放された瞬間に飛び出すのを防ぐ。
         self._base_direct_pose = target
         self._base_setpoint = target
+        # odom の twist はここから出る (下流で /odom へ流れる)。指令値ではなく
+        # 実現できた速度を返し、壁で止まったことをナビゲーション側から
+        # 観測できるようにする。
         self._base_kinematic_velocity = (
-            cmd.dot_x, cmd.dot_y, cmd.dot_r)
+            cmd.dot_x * scale, cmd.dot_y * scale, cmd.dot_r)
+        # クランプの出入りだけを出す (60Hz で毎ステップ出すとログが埋まる)。
+        clamped = scale < 1.0
+        if _BASE_DIAG and clamped != getattr(self, '_base_clamp_prev', False):
+            print(
+                '[base-diag] kinematic collision clamp %s scale=%.3f '
+                'cmd=(%.3f, %.3f, %.3f)'
+                % ('ON' if clamped else 'OFF', scale,
+                   cmd.dot_x, cmd.dot_y, cmd.dot_r),
+                flush=True,
+            )
+        self._base_clamp_prev = clamped
         # 平面ジョイント側も同じ姿勢へ合わせ、次の物理ステップで姿勢更新を
         # 打ち消す力が出ないようにする。
         self._set_joint_brake_target(target)
@@ -3487,6 +3783,13 @@ class hsr:
                 _wx, _wy = float(_gp.p.x), float(_gp.p.y)
                 _wyaw = euler_from_quaternion(
                     _gp.r.x, _gp.r.y, _gp.r.z, _gp.r.w)[2]
+                # PhysX が一度でも発散すると真値姿勢が NaN になる。NaN は例外を
+                # 出さないので下の except では捕まらず、そのまま _gt_ref に
+                # 焼き付くと以降の odom も kinematic 目標も恒久的に NaN 化して
+                # sim の再起動が要る状態になる。基準に採る前に必ず弾く。
+                if not all(math.isfinite(_v) for _v in (_wx, _wy, _wyaw)):
+                    raise ValueError(
+                        '非有限の真値 odom: (%r, %r, %r)' % (_wx, _wy, _wyaw))
                 if getattr(self, '_gt_ref', None) is None:
                     self._gt_ref = (_wx, _wy, _wyaw,
                                     self.odometry_estimator.pose.x,
@@ -3504,8 +3807,11 @@ class hsr:
                 self.odometry_estimator.pose.y = _roy + _relx * _os + _rely * _oc
                 self.odometry_estimator.pose.ang = math.atan2(
                     math.sin(_royaw + _relyaw), math.cos(_royaw + _relyaw))
-            except Exception:
-                pass
+            except Exception as exc:
+                # 真値が取れないフレームは前回の odom を据え置く。黙って捨てると
+                # 発散に気付けないので一度だけ通知する。
+                self._warn_once(
+                    'gt-odom', '真値 odom の取り込みに失敗: %s' % exc)
 
         odom = Odometry()
         odom.header.stamp = self.get_ros_time(
@@ -3920,9 +4226,22 @@ class hsr:
                 and self._apply_kinematic_base_motion(direct_cmd, dt)
             )
             if kinematic_applied:
-                abs_dot_x = direct_cmd.dot_x
-                abs_dot_y = direct_cmd.dot_y
-                cartesian_param_.dot_r = direct_cmd.dot_r
+                # 指令値ではなく、衝突クランプ後に実現できた速度を返す。
+                # ここは軌道追従の D 項 (odom_trajectory_action_server._velocity)
+                # と次ステップの /odom twist の両方の元になるので、壁で止まった
+                # ことがナビゲーション側から観測できるようになる。
+                _kv = getattr(
+                    self, '_base_kinematic_velocity', (0.0, 0.0, 0.0))
+                abs_dot_x = float(_kv[0])
+                abs_dot_y = float(_kv[1])
+                cartesian_param_.dot_r = float(_kv[2])
+                # ここで articulation root の速度を書いてはいけない。root は
+                # FixedJoint で anchor に溶接されているので、拘束が要求する速度は
+                # 常に anchor の速度そのもの。別の値を書くとソルバーが毎ステップ
+                # それを打ち消し、その揺れが arm_flex まで伝わる。anchor と root の
+                # 速度整合は、anchor を kinematic target で動かして PhysX 自身に
+                # 速度を導出させることで成立させる
+                # (BASE_KINEMATIC_ANCHOR_MODE=usd)。
 
             # 従来経路。決定論的更新が無効、または Tensor API が失敗した場合だけ
             # 剛体速度と位置ドライブを併用する。
