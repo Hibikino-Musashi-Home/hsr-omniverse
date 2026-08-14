@@ -34,6 +34,7 @@ services:
       - ../assets/cyclonedds.localhost.xml:/cyclonedds.localhost.xml:ro
       - ../launch/hsr.launch.py:/hsr.launch.py:ro
       - ../scripts/rgbd_republisher.py:/rgbd_republisher.py:ro
+      - ../scripts/navigate_to_pose_bridge.py:/navigate_to_pose_bridge.py:ro
       # 制御指示のサンプルコード (実習用)。編集が即反映されるよう live マウント
       - ../examples:/examples:ro
       - ../assets/moveit-no-octomap.rviz:/ws/install/hsrb_moveit_config/share/hsrb_moveit_config/config/moveit.rviz:ro
@@ -76,6 +77,8 @@ services:
       - GRASP_ATTACH=${GRASP_ATTACH:-1}
       # MoveIt whole_body の台車追従。必要なら make up BASE_TRAJ_P_GAIN=1.0 などで調整。
       - BASE_DIRECT_DRIVE=${BASE_DIRECT_DRIVE:-1}
+      # 台車はkinematic anchorへ固定し、速度/位置ドライブ競合による暴れを防ぐ。
+      - BASE_KINEMATIC_DRIVE=${BASE_KINEMATIC_DRIVE:-1}
       - BASE_TRAJ_P_GAIN=${BASE_TRAJ_P_GAIN:-2.0}
       - BASE_TRAJ_D_GAIN=${BASE_TRAJ_D_GAIN:-0.5}
       - BASE_TRAJ_I_GAIN=${BASE_TRAJ_I_GAIN:-4.0}
