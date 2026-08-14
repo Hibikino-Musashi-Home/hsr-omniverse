@@ -3,6 +3,7 @@
 #
 # 基本の使い方:
 #   make build      イメージをビルド (初回のみ。30分〜1時間程度)
+#   make build nocache  キャッシュを使わず全部焼き直す (依存を取り直したいとき)
 #   make up         シミュレータ一式を起動 (初回はシェーダー生成で10〜20分)
 #   make down       停止・コンテナ削除
 #   make exec ros2      ros2 コンテナに入る (ros2 topic list などを叩く場所)
@@ -72,6 +73,23 @@ endif
 # ${CYCLONEDDS_URI} 展開に届かないので明示的に export する。
 export CYCLONEDDS_URI
 
+# --- nocache modifier -------------------------------------------------------
+# 'nocache' を付けるとレイヤキャッシュを一切使わずに焼き直す。
+#   make build nocache
+# 依存 (apt/pip/git) を最新で取り直したいとき、キャッシュが壊れている疑いがあるとき用。
+# isaacsim イメージは 18GB あるので数十分〜1時間以上かかる。通常は付けないこと。
+# 環境変数派のために NO_CACHE=1 でも同じ意味にする。
+# ※ --pull は付けない。ベースが nvcr.io/nvidia/isaac-sim:4.5.0 (NGC 認証が要る) なので、
+#    ログインしていない環境では pull 失敗でビルドごと落ちる。ベースまで取り直したいときだけ
+#    手で `make build nocache PULL=--pull`。
+PULL ?=
+NO_CACHE ?= $(if $(filter nocache,$(MAKECMDGOALS)),1,0)
+ifeq ($(NO_CACHE),1)
+  BUILD_FLAGS := --no-cache $(PULL)
+else
+  BUILD_FLAGS :=
+endif
+
 # Isaac 側と Apptainer 側で必ず一致させる値。make up ROS_DOMAIN_ID=31 で変えられる。
 ROS_DOMAIN_ID ?= 26
 export ROS_DOMAIN_ID
@@ -80,7 +98,7 @@ export ROS_DOMAIN_ID
 DDS_FILE := $(patsubst file:///%,%,$(CYCLONEDDS_URI))
 
 # --- Targets ----------------------------------------------------------------
-.PHONY: help dev localhost dds-check build up down logs ps exec ros2 isaacsim run tune tune-apply
+.PHONY: help dev localhost nocache dds-check build up down logs ps exec ros2 isaacsim run tune tune-apply
 .DEFAULT_GOAL := help
 
 # RViz2 は既定でオフ。見たいときだけ `make up RVIZ=1`。
@@ -239,9 +257,11 @@ help:
 	@echo "Modifiers (アクションと並べて書く):"
 	@echo "  localhost  DDS を loopback に閉じる (例: make up localhost)"
 	@echo "  dev        シミュレータを自動起動せずコンテナだけ立てる"
+	@echo "  nocache    レイヤキャッシュを使わず焼き直す (例: make build nocache)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make build"
+	@echo "  make build nocache # キャッシュ無しで全部焼き直す (数十分〜1時間以上)"
 	@echo "  make up"
 	@echo "  make up RVIZ=1    # RViz2 も起動する (既定はオフ)"
 	@echo "  make up localhost # DDS を loopback に閉じる (LANへのマルチキャスト漏洩対策)"
@@ -269,6 +289,10 @@ dev:
 localhost:
 	@:
 
+# 同上。'make build nocache' の 'nocache' を no-op ターゲットとして受ける。
+nocache:
+	@:
+
 # 起動前に DDS プロファイルの指定を検証する。
 # CYCLONEDDS_URI を手打ちして打ち間違えると、Cyclone は
 # "can't open configuration file ..." を1行出すだけで先へ進み、その後
@@ -289,7 +313,7 @@ dds-check:
 	@echo '🔧 DDS: $(CYCLONEDDS_URI)   ROS_DOMAIN_ID=$(ROS_DOMAIN_ID)'
 
 build:
-	$(COMPOSE) build
+	$(COMPOSE) build $(BUILD_FLAGS)
 
 # TIME=<秒> を付けると競技モード (環境変数 TASK_TIME で isaacsim コンテナに渡る)。
 up: dds-check
