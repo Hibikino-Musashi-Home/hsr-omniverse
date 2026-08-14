@@ -176,6 +176,13 @@ class odom_trajectory_action_server(semuInternalState):
         self._settle_start_time = None
 
     def _set_joint_position(self, name: str, target_position: float) -> None:
+        if not math.isfinite(float(target_position)):
+            print(
+                '[trajectory-safety] ignored non-finite base target: '
+                '%s=%r' % (name, target_position),
+                flush=True,
+            )
+            return
         self._joints[name] = target_position
 
     def _get_joint_position(self, name: str) -> float:
@@ -576,6 +583,11 @@ _BASE_GOAL_SETTLE_DURATION = max(
 _BASE_GOAL_TIMEOUT = max(
     0.0, _env_float('BASE_GOAL_TIMEOUT', 10.0))
 _BASE_CMD_TAU = max(0.0, _env_float('BASE_CMD_TAU', 0.10))
+# cmd_vel が途切れてから指令を無効にするまでの猶予。非ゼロ指令のまま送信が
+# 途絶えると、この時間ぶん最後の指令で走り続ける。ゼロ指令を受けた場合は
+# 速度値の判定で即座に停止するので、この値は関係しない。
+_BASE_CMD_VEL_TIMEOUT = max(
+    0.0, _env_float('BASE_CMD_VEL_TIMEOUT', 0.3))
 _BASE_TRAJ_I_GAIN = max(
     0.0, _env_float('BASE_TRAJ_I_GAIN', 4.0))
 _BASE_TRAJ_I_LINEAR_LIMIT = max(
@@ -646,6 +658,17 @@ _BASE_SETPOINT_MAX_LAG_ANGULAR = max(
     0.0, _env_float('BASE_SETPOINT_MAX_LAG_ANGULAR', 0.05))
 # 平面ジョイントのドライブで台車を保持・駆動する。0 にすると素の速度制御に戻る。
 _BASE_JOINT_BRAKE = _env_bool('BASE_JOINT_BRAKE', True)
+# 直接駆動時は、平滑化した速度指令を姿勢へ積分し、衝突形状のない kinematic
+# anchor を動かす。base_footprint は anchor へ固定するため、内部関節の物理を
+# 保ったまま速度書き込みと位置ドライブの競合を避けられる。物理車輪駆動を選んだ
+# ときは anchor を作らない。
+_BASE_KINEMATIC_DRIVE = (
+    _BASE_DIRECT_DRIVE and _env_bool('BASE_KINEMATIC_DRIVE', True))
+# 走行中に剛体速度を直接書き込むか。0 にすると平面ジョイントのドライブ単独になる
+# (位置ドライブと速度書き込みの二重制御を切り分けるための実験用)。
+_BASE_VELOCITY_WRITE = _env_bool('BASE_VELOCITY_WRITE', True)
+# 純回転のときだけ速度書き込みを省く (回転は角度ドライブ単独で出す)。
+_BASE_ROT_NO_VELOCITY_WRITE = _env_bool('BASE_ROT_NO_VELOCITY_WRITE', False)
 # 物体が落ち着いた頃に実位置をログへ出す (把持目標を決めるのに使う)。
 _OBJECT_POSE_REPORT = _env_bool('OBJECT_POSE_REPORT', True)
 _OBJECT_POSE_REPORT_AT = max(
@@ -990,6 +1013,7 @@ class hsr:
         self._base_direct_cmd_prev = CartSpace()
         self._base_direct_applied_cmd = CartSpace()
         self._base_direct_pose = None
+        self._base_kinematic_velocity = (0.0, 0.0, 0.0)
         self._base_hold_pose = None
         self._base_brake_engaged = False
         self._base_brake_pin = None
@@ -1857,6 +1881,58 @@ class hsr:
         if not _BASE_DIRECT_DRIVE:
             return
 
+        # articulation root を毎フレーム直接テレポートすると、内部関節と外部 D6
+        # 拘束の解決が衝突して物理が暴れる。kinematic 時は「衝突形状を持たない
+        # kinematic anchor」を作り、base_footprint を FixedJoint で結ぶ。移動するのは
+        # anchor だけなので、ロボット内部の物理を保ったまま決定論的に台車を拘束できる。
+        if _BASE_KINEMATIC_DRIVE:
+            current_stage = stage.get_current_stage()
+            root_path = self.stage_path + self.prefix + '/base_footprint'
+            root_prim = current_stage.GetPrimAtPath(root_path)
+            if not root_prim or not root_prim.IsValid():
+                raise RuntimeError('missing kinematic base body: %s' % root_path)
+            root_transform = UsdGeom.Xformable(
+                root_prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+            root_translation = root_transform.ExtractTranslation()
+            root_quat = Gf.Transform(root_transform).GetRotation().GetQuat()
+            root_imaginary = root_quat.GetImaginary()
+            root_yaw = euler_from_quaternion(
+                float(root_imaginary[0]), float(root_imaginary[1]),
+                float(root_imaginary[2]), float(root_quat.GetReal()))[2]
+
+            anchor_path = self.stage_path + '/hsr_base_kinematic_anchor'
+            anchor = UsdGeom.Xform.Define(current_stage, anchor_path)
+            anchor_xform = UsdGeom.XformCommonAPI(anchor)
+            anchor_xform.SetTranslate(root_translation)
+            anchor_xform.SetRotate(
+                Gf.Vec3f(0.0, 0.0, math.degrees(root_yaw)),
+                UsdGeom.XformCommonAPI.RotationOrderXYZ,
+            )
+            anchor_body = UsdPhysics.RigidBodyAPI.Apply(anchor.GetPrim())
+            anchor_body.CreateKinematicEnabledAttr().Set(True)
+
+            joint_path = self.stage_path + '/hsr_kinematic_base_joint'
+            joint = UsdPhysics.FixedJoint.Define(current_stage, joint_path)
+            joint.CreateBody0Rel().SetTargets([Sdf.Path(anchor_path)])
+            joint.CreateBody1Rel().SetTargets([Sdf.Path(root_path)])
+            joint.CreateLocalPos0Attr().Set(Gf.Vec3f(0.0))
+            joint.CreateLocalPos1Attr().Set(Gf.Vec3f(0.0))
+            joint.CreateLocalRot0Attr().Set(Gf.Quatf(1.0))
+            joint.CreateLocalRot1Attr().Set(Gf.Quatf(1.0))
+            joint.CreateExcludeFromArticulationAttr().Set(True)
+            joint.CreateBreakForceAttr().Set(1e20)
+            joint.CreateBreakTorqueAttr().Set(1e20)
+
+            self._base_kinematic_anchor_path = anchor_path
+            self._base_kinematic_anchor = None
+            self._base_brake_drives = {}
+            self._planar_frame0 = None
+            print(
+                '[base-physics] kinematic drive: fixed anchor=%s' % anchor_path,
+                flush=True,
+            )
+            return
+
         current_stage = stage.get_current_stage()
         root_path = self.stage_path + self.prefix + '/base_footprint'
         root_prim = current_stage.GetPrimAtPath(root_path)
@@ -1908,7 +1984,10 @@ class hsr:
         # 目標にし続ければバネ力はほぼ 0 になり、従来の速度制御を妨げない。
         # joint frame0 は spawn 姿勢なので DOF 値 = odom 座標と一致する。
         self._base_brake_drives = {}
-        if _BASE_JOINT_BRAKE:
+        # kinematic drive は停止中も articulation 姿勢を直接保持する。そこでさらに
+        # 20万 N/m の位置ドライブを有効にすると、姿勢更新直後の物理ステップで
+        # 引き戻しが起きる。kinematic 時は D6 の z/roll/pitch 拘束だけを残す。
+        if _BASE_JOINT_BRAKE and not _BASE_KINEMATIC_DRIVE:
             for axis in ('transX', 'transY', 'rotZ'):
                 drive = UsdPhysics.DriveAPI.Apply(joint.GetPrim(), axis)
                 drive.CreateTypeAttr().Set('force')
@@ -1941,7 +2020,7 @@ class hsr:
             '[base-physics] planar joint: free=(x,y,yaw) '
             'locked=(z,roll,pitch) joint_brake=%s frame0=(%.4f, %.4f, %.4f) '
             'k=%.0f d=%.0f'
-            % ('on' if _BASE_JOINT_BRAKE else 'off',
+            % ('on' if self._base_brake_drives else 'off',
                float(root_translation[0]), float(root_translation[1]),
                float(root_translation[2]),
                _BASE_BRAKE_K, _BASE_BRAKE_C),
@@ -2504,6 +2583,8 @@ class hsr:
                 _ps = str(_p.GetPath())
                 if _ps.startswith(_root):
                     continue  # ロボット自身は除く
+                if _ps == getattr(self, '_base_kinematic_anchor_path', None):
+                    continue  # 衝突のない台車制御用anchorは把持対象ではない
                 if _p.HasAPI(UsdPhysics.RigidBodyAPI):
                     paths.append(_ps)
         except Exception as _e:
@@ -2762,8 +2843,9 @@ class hsr:
             _p('dof 取得失敗: %s' % exc)
 
         # --- 台車設定値 (環境変数で調整しているもの) ---
-        _p('base: direct_drive=%s brake=%s gt_odom=%s'
-           % (_BASE_DIRECT_DRIVE, _BASE_BRAKE_ENABLED, _GT_ODOM))
+        _p('base: direct_drive=%s kinematic_drive=%s brake=%s gt_odom=%s'
+           % (_BASE_DIRECT_DRIVE, _BASE_KINEMATIC_DRIVE,
+              _BASE_BRAKE_ENABLED, _GT_ODOM))
         _p('base: traj P=%.3f I=%.3f D=%.3f deadband=%.4f'
            % (_BASE_TRAJ_P_GAIN, _BASE_TRAJ_I_GAIN, _BASE_TRAJ_D_GAIN,
               _BASE_CONTROL_DEADBAND))
@@ -2878,6 +2960,127 @@ class hsr:
                     min(_BASE_SETPOINT_MAX_LAG_ANGULAR, lag_r))
         self._base_setpoint = (
             pose.x + lag_x, pose.y + lag_y, pose.ang + lag_r)
+
+    def _set_kinematic_base_pose(self, target):
+        """odom の目標姿勢へ kinematic anchor を移す。"""
+        if not all(math.isfinite(float(value)) for value in target):
+            self._warn_once(
+                'kinematic-nonfinite-target',
+                '非有限の台車目標を破棄しました: %r' % (target,),
+            )
+            return False
+        pose = self.odometry_estimator.pose
+        try:
+            anchor = getattr(self, '_base_kinematic_anchor', None)
+            if not anchor:
+                anchor = self.dc.get_rigid_body(
+                    self._base_kinematic_anchor_path)
+                if not anchor:
+                    raise RuntimeError('kinematic anchor handle is unavailable')
+                self._base_kinematic_anchor = anchor
+
+            # GT odom の基準変換を逆にたどり、odom 目標を world の anchor 姿勢へ
+            # 変換する。基準取得前だけは現在の base_footprint から差分で求める。
+            ref = getattr(self, '_gt_ref', None)
+            if ref is not None:
+                rwx, rwy, rwyaw, rox, roy, royaw = ref
+                odx = target[0] - rox
+                ody = target[1] - roy
+                coso = math.cos(royaw)
+                sino = math.sin(royaw)
+                relx = odx * coso + ody * sino
+                rely = -odx * sino + ody * coso
+                cosw = math.cos(rwyaw)
+                sinw = math.sin(rwyaw)
+                world_x = rwx + relx * cosw - rely * sinw
+                world_y = rwy + relx * sinw + rely * cosw
+                world_yaw = rwyaw + math.atan2(
+                    math.sin(target[2] - royaw),
+                    math.cos(target[2] - royaw),
+                )
+            else:
+                body = getattr(self, '_gt_body', None)
+                if not body:
+                    body = self.dc.get_rigid_body(
+                        self.stage_path + self.prefix + '/base_footprint')
+                current = self.dc.get_rigid_body_pose(body)
+                current_yaw = euler_from_quaternion(
+                    current.r.x, current.r.y, current.r.z, current.r.w)[2]
+                frame_yaw = current_yaw - pose.ang
+                dx = target[0] - pose.x
+                dy = target[1] - pose.y
+                world_x = current.p.x + (
+                    dx * math.cos(frame_yaw) - dy * math.sin(frame_yaw))
+                world_y = current.p.y + (
+                    dx * math.sin(frame_yaw) + dy * math.cos(frame_yaw))
+                world_yaw = current_yaw + math.atan2(
+                    math.sin(target[2] - pose.ang),
+                    math.cos(target[2] - pose.ang),
+                )
+
+            transform = _dynamic_control.Transform()
+            transform.p = (float(world_x), float(world_y), 0.0)
+            half = 0.5 * world_yaw
+            transform.r = (0.0, 0.0, math.sin(half), math.cos(half))
+            self.dc.set_rigid_body_pose(anchor, transform)
+        except Exception as exc:
+            self._warn_once(
+                'kinematic-drive',
+                '決定論的な台車姿勢更新に失敗; 従来制御へ戻します: %s' % exc,
+            )
+            return False
+        return True
+
+    def _apply_kinematic_base_motion(self, cmd, dt):
+        """平滑化済み速度を積分し、kinematic anchor の平面姿勢を更新する。
+
+        速度書き込みと平面ジョイントの位置ドライブを併用すると拘束ソルバー内で
+        競合し、純回転だけでも数十 cm 並進する。移動中は衝突しない anchor の
+        目標姿勢だけを進めることで、その競合をなくす。
+        """
+        if dt <= 0.0:
+            return False
+        pose = self.odometry_estimator.pose
+        motion_values = (
+            cmd.dot_x, cmd.dot_y, cmd.dot_r,
+            pose.x, pose.y, pose.ang,
+        )
+        if not all(math.isfinite(float(value)) for value in motion_values):
+            # Returning True is intentional: the kinematic path handled the
+            # bad command by stopping, so the legacy velocity writer must not
+            # receive the same NaN as a fallback.
+            self._warn_once(
+                'kinematic-nonfinite-command',
+                '非有限の台車指令を停止へ置換しました: %r' %
+                (motion_values,),
+            )
+            self._base_direct_pose = None
+            self._base_kinematic_velocity = (0.0, 0.0, 0.0)
+            return True
+        target = getattr(self, '_base_direct_pose', None)
+        if target is None:
+            target = (pose.x, pose.y, pose.ang)
+        target = (
+            target[0] + cmd.dot_x * dt,
+            target[1] + cmd.dot_y * dt,
+            math.atan2(
+                math.sin(target[2] + cmd.dot_r * dt),
+                math.cos(target[2] + cmd.dot_r * dt),
+            ),
+        )
+        if not self._set_kinematic_base_pose(target):
+            self._base_direct_pose = None
+            self._base_kinematic_velocity = (0.0, 0.0, 0.0)
+            return False
+
+        self._base_direct_pose = target
+        self._base_setpoint = target
+        self._base_kinematic_velocity = (
+            cmd.dot_x, cmd.dot_y, cmd.dot_r)
+        # 平面ジョイント側も同じ姿勢へ合わせ、次の物理ステップで姿勢更新を
+        # 打ち消す力が出ないようにする。
+        self._set_joint_brake_target(target)
+        return True
 
     def _odom_to_joint(self, pose):
         """odom 姿勢 → 平面ジョイントの DOF 値。
@@ -3012,6 +3215,24 @@ class hsr:
         except Exception as exc:
             self._warn_once('reset-pose', 'リセットの一括移動に失敗: %s' % exc)
 
+        if _BASE_KINEMATIC_DRIVE:
+            try:
+                anchor = getattr(self, '_base_kinematic_anchor', None)
+                if not anchor:
+                    anchor = self.dc.get_rigid_body(
+                        self._base_kinematic_anchor_path)
+                    self._base_kinematic_anchor = anchor
+                anchor_pose = _dynamic_control.Transform()
+                anchor_pose.p = (float(x), float(y), 0.0)
+                anchor_pose.r = (
+                    0.0, 0.0, math.sin(_half), math.cos(_half))
+                self.dc.set_rigid_body_pose(anchor, anchor_pose)
+            except Exception as exc:
+                self._warn_once(
+                    'reset-anchor',
+                    'kinematic anchor のリセットに失敗: %s' % exc,
+                )
+
         root = self.dc.get_articulation_root_body(self.art)
         if not moved:
             t = _dynamic_control.Transform()
@@ -3038,6 +3259,7 @@ class hsr:
         self._base_direct_cmd_prev = CartSpace()
         self._base_direct_applied_cmd = CartSpace()
         self._base_direct_pose = None
+        self._base_kinematic_velocity = (0.0, 0.0, 0.0)
         self._base_hold_pose = None
         # テレポート後に旧位置へバネで引き戻されないよう必ず解除し、
         # 平面ジョイントのドライブ目標も spawn 姿勢 (= joint frame0 の原点) へ
@@ -3227,11 +3449,17 @@ class hsr:
             # Read the same Tensor API state used below for commands; the
             # Dynamic Control rigid-body setter is reduced by the fixed-link
             # constraint solve before it becomes articulation root velocity.
-            root_velocity = self.robots.get_velocities()[0]
-            abs_dot_x = float(root_velocity[0])
-            abs_dot_y = float(root_velocity[1])
             cartesian_param_ = CartSpace()
-            cartesian_param_.dot_r = float(root_velocity[5])
+            if _BASE_KINEMATIC_DRIVE:
+                _kv = getattr(
+                    self, '_base_kinematic_velocity', (0.0, 0.0, 0.0))
+                abs_dot_x, abs_dot_y = float(_kv[0]), float(_kv[1])
+                cartesian_param_.dot_r = float(_kv[2])
+            else:
+                root_velocity = self.robots.get_velocities()[0]
+                abs_dot_x = float(root_velocity[0])
+                abs_dot_y = float(root_velocity[1])
+                cartesian_param_.dot_r = float(root_velocity[5])
             if not _GT_ODOM and dt > 0.0:
                 self.odometry_estimator.pose.x += abs_dot_x * dt
                 self.odometry_estimator.pose.y += abs_dot_y * dt
@@ -3412,7 +3640,7 @@ class hsr:
                     )
                     self._reset_base_pose_integral()
         manual_cmd_active = (
-            self.last_cmd_vel_time + 2.0
+            self.last_cmd_vel_time + _BASE_CMD_VEL_TIMEOUT
             > self.simulation_context.current_time
             and self.cmd_vel_msg is not None
             and (
@@ -3629,7 +3857,14 @@ class hsr:
             # --- 駐車ブレーキ: 姿勢を固定して腕の反力に流されないようにする ---
             self._base_direct_cmd_prev = CartSpace()
             self._base_direct_applied_cmd = CartSpace()
+            self._base_direct_pose = None
+            self._base_kinematic_velocity = (0.0, 0.0, 0.0)
             self._apply_base_brake(brake_target, dt)
+            if _BASE_KINEMATIC_DRIVE:
+                # 停止時だけ物理ブレーキへ戻すと、移動中に消したソルバー競合が
+                # 再発し、停止後に数十 cm 揺り戻される。ブレーキの creep で求めた
+                # pin を articulation 姿勢にも反映して、停止保持も決定論的にする。
+                self._set_kinematic_base_pose(self._base_brake_pin)
             self.dc.set_dof_velocity_target(self.left_wheel_ptr, 0.0)
             self.dc.set_dof_velocity_target(self.right_wheel_ptr, 0.0)
             self.dc.set_dof_velocity_target(self.roll_ptr, 0.0)
@@ -3680,25 +3915,55 @@ class hsr:
                 direct_cmd = smoothed
                 self._base_direct_cmd_prev = smoothed
 
-            # Apply a continuous planar velocity constraint without rewriting
-            # pose.  Keeping this active at zero command prevents the
-            # frictionless direct-drive chassis from tipping or coasting under
-            # arm reaction forces.  The first-order filter above makes the
-            # transition to zero continuous.
-            root_velocity = self.robots.get_velocities()[0]
-            self.robots.set_velocities(np.array([[
-                direct_cmd.dot_x,
-                direct_cmd.dot_y,
-                float(root_velocity[2]),
-                0.0,
-                0.0,
-                direct_cmd.dot_r,
-            ]], dtype=np.float32))
+            kinematic_applied = (
+                _BASE_KINEMATIC_DRIVE
+                and self._apply_kinematic_base_motion(direct_cmd, dt)
+            )
+            if kinematic_applied:
+                abs_dot_x = direct_cmd.dot_x
+                abs_dot_y = direct_cmd.dot_y
+                cartesian_param_.dot_r = direct_cmd.dot_r
+
+            # 従来経路。決定論的更新が無効、または Tensor API が失敗した場合だけ
+            # 剛体速度と位置ドライブを併用する。
+            # BASE_VELOCITY_WRITE=0 にすると速度書き込みを省き、平面ジョイントの
+            # ドライブ単独で走らせる (二重制御の切り分け用。既定は従来どおり)。
+            # BASE_ROT_NO_VELOCITY_WRITE=1 は純回転のときだけ書き込みを省く。
+            # 純回転では速度書き込みと位置ドライブの競合で並進が 3 倍に増える
+            # (実測 0.31m -> 0.93m)。直進は速度書き込みが無いと成立しないため、
+            # 回転のときだけ角度ドライブ単独にする。
+            _pure_rotation = (
+                _BASE_ROT_NO_VELOCITY_WRITE
+                and abs(direct_cmd.dot_x) < 1e-3
+                and abs(direct_cmd.dot_y) < 1e-3
+                and abs(direct_cmd.dot_r) > 1e-3
+            )
+            if _BASE_DIAG and _BASE_ROT_NO_VELOCITY_WRITE:
+                if _pure_rotation != getattr(self, '_pure_rot_prev', None):
+                    self._pure_rot_toggle = (
+                        getattr(self, '_pure_rot_toggle', 0) + 1)
+                    print('[rot-switch] %s (%d回目) cmd=(%.4f, %.4f, %.4f)'
+                          % ('純回転' if _pure_rotation else '通常',
+                             self._pure_rot_toggle, direct_cmd.dot_x,
+                             direct_cmd.dot_y, direct_cmd.dot_r), flush=True)
+                    self._pure_rot_prev = _pure_rotation
+            if (not kinematic_applied
+                    and _BASE_VELOCITY_WRITE and not _pure_rotation):
+                root_velocity = self.robots.get_velocities()[0]
+                self.robots.set_velocities(np.array([[
+                    direct_cmd.dot_x,
+                    direct_cmd.dot_y,
+                    float(root_velocity[2]),
+                    0.0,
+                    0.0,
+                    direct_cmd.dot_r,
+                ]], dtype=np.float32))
             self._base_direct_applied_cmd = direct_cmd
             # 平面ジョイントのドライブを「位置サーボ」として使う。目標は指令速度を
             # 積分した設定値 (setpoint)。現在位置に追従させるとバネが動きを
             # 打ち消してしまい走行できない (実測: 0.5m 指令で 0.12m しか進まず)。
-            self._advance_base_setpoint(direct_cmd, dt)
+            if not kinematic_applied:
+                self._advance_base_setpoint(direct_cmd, dt)
             # ドライブの減衰項は速度に比例した抵抗になる (速度目標は PhysX に
             # 反映されないため実測で確認)。抵抗と釣り合う分だけ目標位置を
             # 先出しして打ち消す。lead = 減衰/剛性 x 指令速度。
@@ -3707,11 +3972,12 @@ class hsr:
             lead_ang = (
                 _BASE_BRAKE_ANGULAR_C / _BASE_BRAKE_ANGULAR_K
                 if _BASE_BRAKE_ANGULAR_K > 0.0 else 0.0)
-            self._set_joint_brake_target((
-                self._base_setpoint[0] + lead * direct_cmd.dot_x,
-                self._base_setpoint[1] + lead * direct_cmd.dot_y,
-                self._base_setpoint[2] + lead_ang * direct_cmd.dot_r,
-            ))
+            if not kinematic_applied:
+                self._set_joint_brake_target((
+                    self._base_setpoint[0] + lead * direct_cmd.dot_x,
+                    self._base_setpoint[1] + lead * direct_cmd.dot_y,
+                    self._base_setpoint[2] + lead_ang * direct_cmd.dot_r,
+                ))
             if _BASE_DIAG and max(
                 abs(direct_cmd.dot_x), abs(direct_cmd.dot_y),
                 abs(direct_cmd.dot_r)) > 1e-3:
