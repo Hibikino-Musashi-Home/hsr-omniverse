@@ -378,23 +378,6 @@ def generate_launch_description():
         additional_env={'HSR_ROS_VERSION': '2'},
     )
 
-    local_navigate_bridge = os.path.join(
-        os.path.dirname(launch_dir),
-        'scripts',
-        'navigate_to_pose_bridge.py',
-    )
-    navigate_bridge_script = (
-        local_navigate_bridge
-        if os.path.exists(local_navigate_bridge)
-        else '/navigate_to_pose_bridge.py'
-    )
-    navigate_to_pose_bridge = ExecuteProcess(
-        cmd=['python3', navigate_bridge_script],
-        output='screen',
-        respawn=True,
-        respawn_delay=1.0,
-    )
-
     grasp_tf_broadcaster = ExecuteProcess(
         cmd=[
             'python3',
@@ -429,7 +412,6 @@ def generate_launch_description():
         rgbd_republisher,
         laser_scan_matcher,
         reset_world_matcher_helper,
-        navigate_to_pose_bridge,
         sensor_frames,
         joint_state_publisher,
         robot_state_publisher,
