@@ -79,6 +79,30 @@ services:
       - GRASP_ATTACH=${GRASP_ATTACH:-1}
       # MoveIt whole_body の台車追従。必要なら make up BASE_TRAJ_P_GAIN=1.0 などで調整。
       - BASE_DIRECT_DRIVE=${BASE_DIRECT_DRIVE:-1}
+      # 車輪に力を掛けて台車を動かすのをやめ、速度指令から次フレームの位置と向きを
+      # 計算して kinematic anchor をそこへ直接追従させる。回転指令に並進が混ざる/
+      # 車輪が滑る/停止後に揺り戻す、といった現象をまとめて断つための方式。
+      # 0 にすると平面ジョイント上の動剛体へ速度を書く従来経路に戻る (切り分け用)。
+      - BASE_KINEMATIC_DRIVE=${BASE_KINEMATIC_DRIVE:-1}
+      # 位置追従方式では PhysX の接触拘束が台車を止められない (anchor が実効的に
+      # 無限質量になるため)。そこで目標位置を進める前に台車外周の球をスイープし、
+      # 障害物を貫通する分だけ前進量を削る。0 にすると壁をすり抜ける。
+      - BASE_KINEMATIC_COLLISION=${BASE_KINEMATIC_COLLISION:-1}
+      # スイープに使う台車半径 [m] / 球の中心高さ [m] / 手前に残す余裕 [m]。
+      - BASE_COLLISION_RADIUS=${BASE_COLLISION_RADIUS:-0.24}
+      - BASE_COLLISION_HEIGHT=${BASE_COLLISION_HEIGHT:-0.25}
+      - BASE_COLLISION_MARGIN=${BASE_COLLISION_MARGIN:-0.01}
+      # anchor の動かし方。usd = USD の xform を書いて PhysX に kinematic target
+      # として解釈させる。PhysX が「1ステップかけて目標へ動く」扱いにするので
+      # anchor 自身が速度を持ち、FixedJoint で繋がった articulation も滑らかに
+      # 運ばれる。dc = dc.set_rigid_body_pose で瞬間移動 (従来動作)。dc だと毎
+      # ステップ位置が跳ぶだけで anchor の速度は 0 のままなので、FixedJoint が
+      # 位置誤差をインパルスで埋め、その衝撃で arm_flex が落ちる (実測 1.493 rad)。
+      - BASE_KINEMATIC_ANCHOR_MODE=${BASE_KINEMATIC_ANCHOR_MODE:-usd}
+      # arm_flex のドライブ力上限 [N*m]。100 だと台車搬送時の外乱に負けて
+      # maxVelocity(1.2rad/s) で飽和したまま落ち続ける。
+      - ARM_FLEX_MAX_FORCE=${ARM_FLEX_MAX_FORCE:-300}
+      - BASE_VELOCITY_WRITE=${BASE_VELOCITY_WRITE:-1}
       - BASE_TRAJ_P_GAIN=${BASE_TRAJ_P_GAIN:-2.0}
       - BASE_TRAJ_D_GAIN=${BASE_TRAJ_D_GAIN:-0.5}
       - BASE_TRAJ_I_GAIN=${BASE_TRAJ_I_GAIN:-4.0}

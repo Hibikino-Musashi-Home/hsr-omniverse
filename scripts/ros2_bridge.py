@@ -248,6 +248,23 @@ class RosControlFollowJointTrajectory(RosController):
         :param target_position: The target position
         :type target_position: float
         """
+        # Planner/filter bugs must never be allowed to inject NaN into PhysX.
+        # One non-finite DOF target invalidates the entire articulation and all
+        # subsequent TF, so skip it at the final boundary as a last line of
+        # defense even though goals are validated on receipt below.
+        if not math.isfinite(float(target_position)):
+            key = (name, repr(target_position))
+            warned = getattr(self, '_invalid_target_warned', set())
+            if key not in warned:
+                warned.add(key)
+                self._invalid_target_warned = warned
+                print(
+                    '[trajectory-safety] {} ignored non-finite target: '
+                    '{}={}'.format(
+                        self.action_topic_name, name, target_position),
+                    flush=True,
+                )
+            return
         # clip target position
         if self._joints[name]["has_limits"]:
             target_position = min(max(target_position, self._joints[name]["lower"]), self._joints[name]["upper"])
@@ -403,6 +420,54 @@ class RosControlFollowJointTrajectory(RosController):
                     .format(name, list(self._joints.keys())))
                 return GoalResponse.REJECT
 
+        joint_count = len(goal.trajectory.joint_names)
+        if not goal.trajectory.points:
+            print(
+                '[trajectory-safety] {} rejected empty trajectory'.format(
+                    self.action_topic_name),
+                flush=True,
+            )
+            return GoalResponse.REJECT
+        for point_index, point in enumerate(goal.trajectory.points):
+            if len(point.positions) < joint_count:
+                print(
+                    '[trajectory-safety] {} rejected short positions at point '
+                    '{}: {} < {}'.format(
+                        self.action_topic_name, point_index,
+                        len(point.positions), joint_count),
+                    flush=True,
+                )
+                return GoalResponse.REJECT
+            invalid_positions = [
+                (goal.trajectory.joint_names[i], point.positions[i])
+                for i in range(joint_count)
+                if not math.isfinite(float(point.positions[i]))
+            ]
+            if invalid_positions:
+                print(
+                    '[trajectory-safety] {} rejected non-finite positions at '
+                    'point {}: {}'.format(
+                        self.action_topic_name, point_index,
+                        invalid_positions),
+                    flush=True,
+                )
+                return GoalResponse.REJECT
+            if point.velocities:
+                sanitized = list(point.velocities)
+                changed = []
+                for i, value in enumerate(sanitized):
+                    if not math.isfinite(float(value)):
+                        changed.append((i, value))
+                        sanitized[i] = 0.0
+                if changed:
+                    point.velocities = sanitized
+                    print(
+                        '[trajectory-safety] {} replaced non-finite velocities '
+                        'with zero at point {}: {}'.format(
+                            self.action_topic_name, point_index, changed),
+                        flush=True,
+                    )
+
         # Preempt any in-flight goal so streaming clients can replace the
         # active trajectory. The previous _on_execute loop polls _action_goal
         # and exits with INVALID_GOAL once we clear it.
@@ -464,6 +529,23 @@ class RosControlFollowJointTrajectory(RosController):
                 return
         if not msg.points:
             return
+        joint_count = len(msg.joint_names)
+        for point_index, point in enumerate(msg.points):
+            if len(point.positions) < joint_count or any(
+                not math.isfinite(float(value))
+                for value in point.positions[:joint_count]
+            ):
+                print(
+                    '[trajectory-safety] {} ignored invalid topic trajectory '
+                    'point {}'.format(self.action_topic_name, point_index),
+                    flush=True,
+                )
+                return
+            if point.velocities:
+                point.velocities = [
+                    float(value) if math.isfinite(float(value)) else 0.0
+                    for value in point.velocities
+                ]
         with self._pending_lock:
             self._pending_topic_msg = msg
 
@@ -535,7 +617,9 @@ class RosControlFollowJointTrajectory(RosController):
         self._action_start_time = None
         self._action_result_message = None
         self._reset_goal_convergence()
-        goal_handle.destroy()
+        # ServerGoalHandle の破棄は rclpy ActionServer に任せる。
+        # ここで手動 destroy すると、result_timeout 後の期限切れ処理が同じ
+        # handle を再度破棄して KeyError となり、ROS executor 全体が停止する。
         return CancelResponse.ACCEPT
 
     def _on_execute(self, goal_handle: 'rclpy.action.server.ServerGoalHandle') -> 'FollowJointTrajectory.Result':

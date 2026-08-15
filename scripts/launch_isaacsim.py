@@ -576,26 +576,40 @@ for i in range(len(contact_links)):
     )
 
 
-actor_to_body_name_cache = {}
+actor_to_body_path_cache = {}
 prev_contact = None
+
+
+def _actor_body_path(actor):
+    try:
+        return actor_to_body_path_cache[actor]
+    except KeyError:
+        path = str(PhysicsSchemaTools.intToSdfPath(actor))
+        actor_to_body_path_cache[actor] = path
+        return path
 
 
 def contact_report_event(ch, cd):
     global prev_contact
     for c in ch:
-        try:
-            body1 = actor_to_body_name_cache[c.actor1]
-        except KeyError:
-            body1 = str(PhysicsSchemaTools.intToSdfPath(
-                c.actor1)).split('/')[1]
-            actor_to_body_name_cache[c.actor1] = body1
-        if body1 != 'background':
-            if prev_contact != body1:
-                print(f'Contact {body1}')
-                prev_contact = body1
-        # 壁 (wall_*) にぶつかったら衝突検出トピックに知らせる
-        # (競技の Hit 判定と同じ仕組み)。
-        if body1.startswith('wall_'):
+        path0 = _actor_body_path(c.actor0)
+        path1 = _actor_body_path(c.actor1)
+        robot0 = path0 == '/hsrb' or path0.startswith('/hsrb/')
+        robot1 = path1 == '/hsrb' or path1.startswith('/hsrb/')
+
+        # PhysX の購読はシーン全体の接触を返す。従来は actor1 だけを見て
+        # wall と World (床) の常時接触までロボットの衝突として通知していた。
+        # ロボットが当事者でない接触と、ロボット内部の自己接触は無視する。
+        if robot0 == robot1:
+            continue
+        other_path = path1 if robot0 else path0
+        body_name = other_path.strip('/').split('/')[0]
+        if body_name != 'background' and prev_contact != body_name:
+            print(f'Contact {body_name}')
+            prev_contact = body_name
+        # 壁 (wall_*) にロボット自身がぶつかった場合だけ衝突検出トピックへ
+        # 知らせる (競技の Hit 判定と同じ仕組み)。
+        if body_name.startswith('wall_'):
             collision_detect_pub.publish(std_msgs.msg.Bool(data=True))
 
 
