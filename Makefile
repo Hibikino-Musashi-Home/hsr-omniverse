@@ -105,7 +105,7 @@ export ROS_DOMAIN_ID
 DDS_FILE := $(patsubst file:///%,%,$(CYCLONEDDS_URI))
 
 # --- Targets ----------------------------------------------------------------
-.PHONY: help dev localhost nochache compe dds-check build up down logs ps exec ros2 isaacsim run tune tune-apply
+.PHONY: help dev localhost nocache compe dds-check build up down logs ps exec ros2 isaacsim run tune tune-apply
 .DEFAULT_GOAL := help
 
 # RViz2 は既定でオフ。見たいときだけ `make up RVIZ=1`。
@@ -302,7 +302,7 @@ localhost:
 
 # 同上。'make up compe' の 'compe' を no-op ターゲットとして受ける。
 compe:
-      @:
+	@:
 # 同上。'make build nocache' の 'nocache' を no-op ターゲットとして受ける。
 nocache:
 	    @:
