@@ -73,6 +73,13 @@ endif
 # ${CYCLONEDDS_URI} 展開に届かないので明示的に export する。
 export CYCLONEDDS_URI
 
+# --- competition object placement modifier ---------------------------------
+# 'compe' を付けると placement.yaml の座標・家具・段はそのまま使い、
+# configs/placement.compe.yaml の候補物体を同ファイルのスロットへランダムに割り当てる。
+#   make up localhost compe
+COMPETITION_MODE := $(if $(filter compe,$(MAKECMDGOALS)),1,0)
+OBJECT_RANDOMIZE := $(COMPETITION_MODE)
+OBJECT_PLACEMENT_CONFIG := $(if $(filter compe,$(MAKECMDGOALS)),/app/configs/placement.compe.yaml,)
 # --- nocache modifier -------------------------------------------------------
 # 'nocache' を付けるとレイヤキャッシュを一切使わずに焼き直す。
 #   make build nocache
@@ -98,7 +105,7 @@ export ROS_DOMAIN_ID
 DDS_FILE := $(patsubst file:///%,%,$(CYCLONEDDS_URI))
 
 # --- Targets ----------------------------------------------------------------
-.PHONY: help dev localhost nocache dds-check build up down logs ps exec ros2 isaacsim run tune tune-apply
+.PHONY: help dev localhost nochache compe dds-check build up down logs ps exec ros2 isaacsim run tune tune-apply
 .DEFAULT_GOAL := help
 
 # RViz2 は既定でオフ。見たいときだけ `make up RVIZ=1`。
@@ -190,6 +197,8 @@ CAMERA_TUNE ?=
 # run (docker compose exec の -e) で同じ一覧から生成し、片方だけ追加し忘れる
 # のと、`-e -e` のような取りこぼしが起きないようにする。
 SIM_ENV_NAMES = \
+  OBJECT_RANDOMIZE \
+  OBJECT_PLACEMENT_CONFIG \
 	BASE_DIRECT_DRIVE \
 	BASE_KINEMATIC_DRIVE \
 	BASE_KINEMATIC_COLLISION \
@@ -241,7 +250,7 @@ SIM_ENV_ASSIGNMENTS = $(foreach v,$(SIM_ENV_NAMES),$(v)=$($(v)))
 SIM_ENV_EXEC_FLAGS = $(foreach v,$(SIM_ENV_NAMES),-e $(v)=$($(v)))
 
 help:
-	@echo "Usage: make <action> [dev] [localhost] [TIME=<秒>]"
+	@echo "Usage: make <action> [dev] [localhost] [compe] [TIME=<秒>]"
 	@echo ""
 	@echo "Actions:"
 	@echo "  build     Build images"
@@ -257,6 +266,7 @@ help:
 	@echo "Modifiers (アクションと並べて書く):"
 	@echo "  localhost  DDS を loopback に閉じる (例: make up localhost)"
 	@echo "  dev        シミュレータを自動起動せずコンテナだけ立てる"
+	@echo "  compe      既存の配置場所へ競技用物体をランダム配置する"
 	@echo "  nocache    レイヤキャッシュを使わず焼き直す (例: make build nocache)"
 	@echo ""
 	@echo "Examples:"
@@ -265,6 +275,7 @@ help:
 	@echo "  make up"
 	@echo "  make up RVIZ=1    # RViz2 も起動する (既定はオフ)"
 	@echo "  make up localhost # DDS を loopback に閉じる (LANへのマルチキャスト漏洩対策)"
+	@echo "  make up localhost compe          # 競技用物体をランダム配置"
 	@echo "  make up localhost ROS_DOMAIN_ID=31   # Apptainer 側と同じ値を指定する"
 	@echo "  make up BASE_TRAJ_P_GAIN=1.0   # whole_body台車FBを弱める"
 	@echo "  make up BASE_DIRECT_DRIVE=0    # 物理車輪駆動へ戻す"
@@ -289,9 +300,12 @@ dev:
 localhost:
 	@:
 
+# 同上。'make up compe' の 'compe' を no-op ターゲットとして受ける。
+compe:
+      @:
 # 同上。'make build nocache' の 'nocache' を no-op ターゲットとして受ける。
 nocache:
-	@:
+	    @:
 
 # 起動前に DDS プロファイルの指定を検証する。
 # CYCLONEDDS_URI を手打ちして打ち間違えると、Cyclone は

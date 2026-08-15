@@ -69,6 +69,9 @@ services:
       - HSR_ROS_VERSION=2
       # 競技モード: `make up TIME=600` で競技時間 (秒) が渡る。空なら通常モード。
       - TASK_TIME=${TASK_TIME:-}
+      # `make up compe`: 競技用placementのスロットへ候補物体をランダム配置。
+      - OBJECT_RANDOMIZE=${OBJECT_RANDOMIZE:-0}
+      - OBJECT_PLACEMENT_CONFIG=${OBJECT_PLACEMENT_CONFIG:-}
       # カメラ調整モード: `make tune` で 1 が渡る。観戦カメラ4台を作るだけで
       # 録画も自動終了もせず、GUI で動かした位置を recordings/tune/ に書き出す。
       - CAMERA_TUNE=${CAMERA_TUNE:-}

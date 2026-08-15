@@ -1,0 +1,85 @@
+# ============================================================
+# 競技用 YCB 物体配置
+# ============================================================
+#
+# `make up ... compe` のときだけ object_placement.py がこのファイルを読む。
+# 通常起動は configs/placement.yaml の固定配置を使うため、このファイルを
+# 変更しても通常環境には影響しない。
+#
+# competition_pool:
+#   ランダム抽選する物体候補。現在の配置スロット数以上を用意する。
+# floor / placements:
+#   物体を置く場所だけを定義する。object は不要。
+#   物体数を増やす場合は、このどちらかへ配置スロットを追加する。
+#
+# 座標・家具名・tier の意味は configs/placement.yaml と同じ。
+
+objects:
+  drop_clearance: 0.1
+
+  competition_pool:
+    - ycb_002_master_chef_can
+    - ycb_003_cracker_box
+    - ycb_004_sugar_box
+    - ycb_005_tomato_soup_can
+    - ycb_006_mustard_bottle
+    - ycb_007_tuna_fish_can
+    - ycb_008_pudding_box
+    - ycb_009_gelatin_box
+    - ycb_010_potted_meat_can
+    - ycb_011_banana
+    - ycb_012_strawberry
+    - ycb_013_apple
+    - ycb_014_lemon
+    - ycb_015_peach
+    - ycb_016_pear
+    - ycb_017_orange
+    - ycb_018_plum
+    - ycb_019_pitcher_base
+    - ycb_021_bleach_cleanser
+    - ycb_022_windex_bottle
+    - ycb_024_bowl
+    - ycb_025_mug
+    - ycb_026_sponge
+    - ycb_029_plate
+    - ycb_030_fork
+    - ycb_031_spoon
+    - ycb_032_knife
+    - ycb_053_mini_soccer_ball
+    - ycb_054_softball
+    - ycb_055_baseball
+    - ycb_056_tennis_ball
+    - ycb_061_foam_brick
+    - ycb_062_dice
+    - ycb_065-e_cups
+    - ycb_072-a_toy_airplane
+    - ycb_077_rubiks_cube
+
+  # 床の配置スロット。追加すれば競技時の出現物体数が増える。
+  floor:
+    - x: 2.8
+      y: 3.6
+    - x: 2.4
+      y: 3.5
+    - x: 6.2
+      y: 3.2
+    - x: 5.2
+      y: 4.8
+
+  # 家具上の配置スロット。object はcompe起動時に自動で割り当てられる。
+  placements:
+    wrc_long_table:
+      - dx: -0.3
+      - dx: 0.3
+      - dx: 0.0
+
+    wrc_tall_table:
+      - {}
+
+    wrc_bookshelf:
+      - tier: 1
+      - tier: 2
+
+    wrc_bookshelf_2:
+      - tier: 1
+      - tier: 2
