@@ -84,7 +84,8 @@ xhost local:
 make build          # 全イメージをビルド (初回のみ。30分〜1時間程度)
 make up             # シミュレータ一式を起動
 make up TIME=600    # 競技モード: 600秒(シミュ内時間)で自動終了し、録画を保存
-make up compe       # 競技用：ランダム配置
+make up localhost compe          # 競技用物体をランダム配置してlocalhostモードで起動
+make up localhost compe TIME=600 # ランダム配置＋600秒の競技録画
 make tune           # 録画カメラ4台の位置・画角を GUI で見ながら調整する
 make tune-apply     # tune の調整結果を configs/placement.yaml に反映する
 make down           # 停止・コンテナ削除
@@ -99,6 +100,7 @@ make                # 引数なし → help
 通常配置は `configs/placement.yaml`、`compe` の候補物体と配置スロットは
 `configs/placement.compe.yaml` で独立して管理する。競技時の物体数を増やす場合は、
 競技用ファイルの `floor:` または `placements:` にスロットを追加する。
+`compe` は modifier のため、`localhost` や `TIME=<秒>` と組み合わせて使用できる。
 
 よく使うオプション:
 
