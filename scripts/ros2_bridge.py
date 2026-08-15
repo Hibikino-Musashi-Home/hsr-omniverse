@@ -617,7 +617,9 @@ class RosControlFollowJointTrajectory(RosController):
         self._action_start_time = None
         self._action_result_message = None
         self._reset_goal_convergence()
-        goal_handle.destroy()
+        # ServerGoalHandle の破棄は rclpy ActionServer に任せる。
+        # ここで手動 destroy すると、result_timeout 後の期限切れ処理が同じ
+        # handle を再度破棄して KeyError となり、ROS executor 全体が停止する。
         return CancelResponse.ACCEPT
 
     def _on_execute(self, goal_handle: 'rclpy.action.server.ServerGoalHandle') -> 'FollowJointTrajectory.Result':
