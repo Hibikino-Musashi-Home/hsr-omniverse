@@ -77,6 +77,9 @@ services:
       - CAMERA_TUNE=${CAMERA_TUNE:-}
       # アタッチ把持(吸い付き)。`make up GRASP=0` で無効化=物理接触のみで把持。
       - GRASP_ATTACH=${GRASP_ATTACH:-1}
+      # reset_world の姿勢キャプチャをスポーン root のサブツリー全体に広げる。
+      # 0 にすると root のみの旧挙動 (モデル内部のメッシュを手で動かすと戻らない)。
+      - RESET_DEEP_CAPTURE=${RESET_DEEP_CAPTURE:-1}
       # MoveIt whole_body の台車追従。必要なら make up BASE_TRAJ_P_GAIN=1.0 などで調整。
       - BASE_DIRECT_DRIVE=${BASE_DIRECT_DRIVE:-1}
       # 車輪に力を掛けて台車を動かすのをやめ、速度指令から次フレームの位置と向きを
