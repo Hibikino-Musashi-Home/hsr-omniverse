@@ -34,7 +34,6 @@ services:
       - ../assets/cyclonedds.localhost.xml:/cyclonedds.localhost.xml:ro
       - ../launch/hsr.launch.py:/hsr.launch.py:ro
       - ../scripts/rgbd_republisher.py:/rgbd_republisher.py:ro
-      - ../scripts/navigate_to_pose_bridge.py:/navigate_to_pose_bridge.py:ro
       # 制御指示のサンプルコード (実習用)。編集が即反映されるよう live マウント
       - ../examples:/examples:ro
       - ../assets/moveit-no-octomap.rviz:/ws/install/hsrb_moveit_config/share/hsrb_moveit_config/config/moveit.rviz:ro
