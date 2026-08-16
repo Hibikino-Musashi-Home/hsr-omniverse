@@ -18,6 +18,7 @@
 
 import os
 import threading
+import time
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -237,6 +238,28 @@ _runtime_rigid_object_paths = []
 # ============================================================
 _spawn_initial_states = []
 
+# GUI (ギズモ) で動かされた prim を起動時の姿勢へ戻すためのテーブル。
+# _spawn_initial_states は剛体を持つ物体しか持たないので、剛体を持たない静的 prim
+# (world 由来の家具・壁, /World/Furniture, /World/People) は手で動かすと戻せない。
+# それらは姿勢の真実が USD の xformOp だけにあるため、起動時 (timeline.play() の
+# 直前) の op の値をここに控えてリセット時に書き戻す。
+#
+# 要素は prim 単位のエントリ:
+#   {'prim': Usd.Prim, 'path': str,
+#    'ops': [{'attr': Usd.Attribute, 'value': op の値}, ...],
+#    'order_attr': Usd.Attribute, 'order': xformOpOrder の値 (未 authored なら None)}
+#
+# xformOpOrder も控えるのが要点。ギズモは op を持たない prim を掴むと
+# xformOp:translate や xformOp:transform を新しく生やすので、op の値を書き戻す
+# だけでは「後から生えた op」がスタックに残って prim が元に戻らない。
+_manual_initial_xforms = []
+
+# 上の記録対象にする「スポーン単位の root prim」パス。world 由来の家具・壁と
+# drop_object の物体はどちらもステージ直下 (/<name>) に作られるが、そこには Kit の
+# ビューポートカメラ (/OmniverseKit_Persp 等) も同居している。ステージ直下を丸ごと
+# 走査するとリセットのたびにユーザの視点まで戻ってしまうので、作った物だけを控える。
+_spawn_root_paths = []
+
 # サービスコールバック (rclpy executor スレッド) から物理ステップ中に prim を
 # 書き換えるのは危険なので、フラグを立ててメインループ側で物理ステップ間に実行する。
 _reset_requested = False
@@ -250,6 +273,179 @@ def _request_reset_and_wait():
     _reset_requested = True
     # メインループが適用 → _reset_done.set() するまで待つ (適用保証)。
     _reset_done.wait(timeout=5.0)
+
+
+def _manual_reset_target_prims():
+    """GUI で掴んで動かしうる「スポーン単位の root prim」を集める。
+
+    捕捉はこの root から下のサブツリー全体が対象 (_capture_manual_reset_targets)。
+    ここで root だけを列挙するのは、ステージ直下を丸ごと走査すると Kit の
+    ビューポートカメラ (/OmniverseKit_Persp 等) まで拾ってしまい、リセットのたびに
+    ユーザの視点が戻ってしまうため。起点は「自分で作った物」に限る。
+      - _spawn_root_paths: world 由来の家具・壁と drop_object の物体。
+        ロボット (/hsrb) は reset_to_spawn が担当するので入っていない。
+      - /World/Furniture, /World/People の子: furniture_spawn / people_spawn が置く。
+        (/World 自身は床や環境テクスチャも含むので、この 2 つの子だけを見る)
+    """
+    _st = omni.usd.get_context().get_stage()
+    prims = []
+    for _path in _spawn_root_paths:
+        _p = _st.GetPrimAtPath(_path)
+        if _p and _p.IsValid():
+            prims.append(_p)
+    for _root_path in (furniture_spawn.FURNITURE_ROOT,
+                       people_spawn.PEOPLE_ROOT):
+        _root = _st.GetPrimAtPath(_root_path)
+        if _root and _root.IsValid():
+            prims.extend(_root.GetChildren())
+    return prims
+
+
+# サブツリーへ潜らず root の xformOp だけを控える旧挙動へ戻す非常口。
+# 深い捕捉が重すぎて起動時間が問題になったとき用 (実測値は起動ログの
+# [reset_world] captured ... に出る)。
+_DEEP_CAPTURE = os.environ.get('RESET_DEEP_CAPTURE', '1') != '0'
+
+
+def _capture_prim_xform_state(prim):
+    """1 prim の xformOp とその順序を控える。Xformable でなければ None。"""
+    _x = UsdGeom.Xformable(prim)
+    if not _x:
+        return None
+
+    _ops = []
+    for _op in _x.GetOrderedXformOps():
+        _attr = _op.GetAttr()
+        if _attr and _attr.IsValid():
+            _ops.append({'attr': _attr, 'value': _attr.Get()})
+
+    _order_attr = _x.GetXformOpOrderAttr()
+    # authored されていなければ None として控える。復元時に順序を空にして、
+    # ギズモが後から生やした op ごと無かったことにするため。
+    _order = (_order_attr.Get()
+              if _order_attr and _order_attr.HasAuthoredValue() else None)
+
+    return {
+        'prim': prim,
+        'path': str(prim.GetPath()),
+        'ops': _ops,
+        'order_attr': _order_attr,
+        'order': _order,
+    }
+
+
+def _capture_manual_reset_targets():
+    """起動時の xformOp の値と順序を控える (reset_world で書き戻すため)。
+
+    行列 1 個に畳まず op 単位で持つ。drop_object が Y-up モデルに後付けする
+    rotateX(90) や furniture_spawn のスケール補正を含む op スタックの順序を
+    壊さずに復元できる。
+
+    スポーン root だけでなくその配下も走査する。tall table の天板のような
+    「モデル内部のメッシュ」をギズモで掴まれると、root の op を戻しても
+    子 prim に生えた op が残って戻らないため。走査は起動時の 1 回だけで、
+    書き戻しは reset のときだけなので、実行中のフレームには乗らない。
+    """
+    _t0 = time.perf_counter()
+    _prim_count = 0
+    _op_count = 0
+
+    for _root in _manual_reset_target_prims():
+        try:
+            for _p in (Usd.PrimRange(_root) if _DEEP_CAPTURE else (_root,)):
+                if not _p.IsActive():
+                    continue
+                _state = _capture_prim_xform_state(_p)
+                if _state is None:
+                    continue
+                _manual_initial_xforms.append(_state)
+                _prim_count += 1
+                _op_count += len(_state['ops'])
+        except Exception as _e:
+            print('[reset_world] xform capture failed for %s: %r'
+                  % (_root.GetPath(), _e), flush=True)
+
+    print('[reset_world] captured %d xform ops over %d prims for manual-move '
+          'reset in %.0f ms (deep=%s)'
+          % (_op_count, _prim_count, 1e3 * (time.perf_counter() - _t0),
+             _DEEP_CAPTURE), flush=True)
+
+
+def _restore_manual_xforms():
+    """控えておいた xformOp を書き戻す (手で動かした prim を元の位置へ)。
+
+    サブツリーまで控えているので対象は数千 prim になりうる。値が起動時と同じ prim
+    には書き込まない。無駄な authoring と USD の変更通知を出さないためで、
+    実際に動かされた prim は一部だけなので大半はここで素通りする。
+    """
+    for s in _manual_initial_xforms:
+        for _op in s['ops']:
+            _attr = _op['attr']
+            if _op['value'] is None or not _attr.IsValid():
+                # GUI で消された prim など。書き戻せないので飛ばす。
+                continue
+            try:
+                if _attr.Get() != _op['value']:
+                    _attr.Set(_op['value'])
+            except Exception as _e:
+                print('[reset_world] xform restore failed for %s: %r'
+                      % (_attr.GetPath(), _e), flush=True)
+
+        # 値を戻したあとに順序を戻す。ギズモが後から生やした op はここで
+        # xformOpOrder から外れ、属性は残るが評価されなくなる。
+        _prim = s['prim']
+        _order_attr = s['order_attr']
+        if not _prim.IsValid() or not _order_attr or not _order_attr.IsValid():
+            continue
+        try:
+            if s['order'] is None:
+                # 起動時は順序が未 authored = 変換なし。ギズモに掴まれて順序が
+                # 生えた prim だけ空へ戻す (ClearXformOpOrder は空の順序を書くので、
+                # 未 authored の prim に対して呼ぶと全 prim に無駄な opinion が残る)。
+                if _order_attr.HasAuthoredValue():
+                    UsdGeom.Xformable(_prim).ClearXformOpOrder()
+            elif _order_attr.Get() != s['order']:
+                _order_attr.Set(s['order'])
+        except Exception as _e:
+            print('[reset_world] xformOpOrder restore failed for %s: %r'
+                  % (s['path'], _e), flush=True)
+
+
+def _capture_spawn_rigid_state(root_prim, label):
+    """スポーンした物の剛体のワールド姿勢を控える (reset_world で戻すため)。
+
+    剛体 (RigidBodyAPI) が付いた prim を subtree から探し、その「合成済み
+    ワールド変換」を保存する。ワールド変換で持つことで Y-up の rotateX(90) 補正や
+    YCB の /body 内部オフセットが自動で正しく反映され、reset 時に
+    dc.get_rigid_body(body_path) でそのまま戻せる。
+
+    剛体 prim のパスはモデルによって違う (YCB と trofast は /<name>/body、
+    wrc_* は /<name>/link) ので、パスを決め打ちせず subtree から探す。
+    剛体を持たないモデル (壁の unit_box など) は何も控えない。
+    """
+    if not root_prim or not root_prim.IsValid():
+        return
+    try:
+        _rb_prim = next(
+            (p for p in Usd.PrimRange(root_prim)
+             if p.HasAPI(UsdPhysics.RigidBodyAPI)),
+            None,
+        )
+        if _rb_prim is None:
+            return
+        _m = UsdGeom.Xformable(_rb_prim).ComputeLocalToWorldTransform(
+            Usd.TimeCode.Default())
+        _t = _m.ExtractTranslation()
+        _q = _m.GetOrthonormalized().ExtractRotationQuat()
+        _qi = _q.GetImaginary()
+        _spawn_initial_states.append({
+            'body_path': str(_rb_prim.GetPath()),
+            'p': (_t[0], _t[1], _t[2]),
+            'q': (_q.GetReal(), _qi[0], _qi[1], _qi[2]),  # (w, x, y, z)
+        })
+    except Exception as _e:
+        print('[reset_world] spawn pose capture failed for %s: %r' %
+              (label, _e), flush=True)
 
 
 model_root = os.path.join(repo_root, 'usd', 'wrs_models')
@@ -295,6 +491,7 @@ for i in root.findall('world/include'):
         _cube_prim = omni.usd.get_context().get_stage().GetPrimAtPath(stage_path)
         physx_utils.setCollider(_cube_prim, approximationShape='none')
         model_names.append(model_name)
+        _spawn_root_paths.append(stage_path)
     if model_uri == 'model://unit_cylinder' and not os.path.exists(model_path):
         # unit_box と同様に、USD モデルが無い円柱は Cylinder prim で直接作る。
         # scale は (直径, 直径, 高さ) 指定 → prim には半分を渡す (Cube と同じ扱い)。
@@ -317,6 +514,7 @@ for i in root.findall('world/include'):
         _cyl_prim = omni.usd.get_context().get_stage().GetPrimAtPath(stage_path)
         physx_utils.setCollider(_cyl_prim, approximationShape='convexHull')
         model_names.append(model_name)
+        _spawn_root_paths.append(stage_path)
     if not os.path.exists(model_path):
         continue
     create_prim(
@@ -336,7 +534,20 @@ for i in root.findall('world/include'):
         root_joint.CreateLocalRot0Attr().Set(Gf.Quatf(1.0))
         root_joint.CreateLocalPos1Attr().Set(Gf.Vec3f(0.0))
         root_joint.CreateLocalRot1Attr().Set(Gf.Quatf(1.0))
+    else:
+        # reset_world 用: <static> の無いモデルは FixedJoint で固定されず、
+        # ロボットに押されると動く動的剛体 (trofast_*, wrc_tray_*, wrc_container_*)。
+        # 参照した model.usd 側に RigidBodyAPI が入っているので、剛体のワールド姿勢を
+        # 控えて _reset_objects() が dynamic control で戻せるようにする。親 Xform の
+        # xformOp を書き戻すだけでは PhysX が持つ姿勢を上書きできない。
+        # <static> 付きは FixedJoint があるので対象にしない (dc で姿勢を書くと
+        # ジョイントと競合する)。まだ play() していないので、ここで控えるのは
+        # world ファイルどおりの姿勢になる。
+        _capture_spawn_rigid_state(
+            omni.usd.get_context().get_stage().GetPrimAtPath(stage_path),
+            model_name)
     model_names.append(model_name)
+    _spawn_root_paths.append(stage_path)
 
 
 def _subtree_has_rigid_body(prim):
@@ -442,31 +653,10 @@ def drop_object(gazebo_name, name, x, y, z, yaw=0.0, roll=0.0, pitch=0.0):
         print('[obj-fix] err %r' % _e, flush=True)
 
     model_names.append(gazebo_name)
+    _spawn_root_paths.append(stage_path)
 
-    # reset_world 用: この物体の初期姿勢を記録する。剛体 (RigidBodyAPI) が付いた
-    # prim を subtree から探し、その「合成済みワールド変換」を保存する。ワールド変換で
-    # 持つことで Y-up の rotateX(90) 補正や YCB の /body 内部オフセットが自動で正しく
-    # 反映され、reset 時に dc.get_rigid_body(body_path) でそのまま戻せる。
-    try:
-        _rb_prim = next(
-            (p for p in Usd.PrimRange(dropped_prim)
-             if p.HasAPI(UsdPhysics.RigidBodyAPI)),
-            None,
-        )
-        if _rb_prim is not None:
-            _m = UsdGeom.Xformable(_rb_prim).ComputeLocalToWorldTransform(
-                Usd.TimeCode.Default())
-            _t = _m.ExtractTranslation()
-            _q = _m.GetOrthonormalized().ExtractRotationQuat()
-            _qi = _q.GetImaginary()
-            _spawn_initial_states.append({
-                'body_path': str(_rb_prim.GetPath()),
-                'p': (_t[0], _t[1], _t[2]),
-                'q': (_q.GetReal(), _qi[0], _qi[1], _qi[2]),  # (w, x, y, z)
-            })
-    except Exception as _e:
-        print('[reset_world] spawn pose capture failed for %s: %r' %
-              (gazebo_name, _e), flush=True)
+    # reset_world 用: この物体の初期姿勢を記録する。
+    _capture_spawn_rigid_state(dropped_prim, gazebo_name)
 
     return model_path
 
@@ -630,6 +820,10 @@ kit.set_setting('/physics/updateToUsd', True)
 kit.update()
 _hsr.onsimulationstart(simulation_context)
 simulation_context.initialize_physics()
+# reset_world 用: 物理が 1 ステップも進んでいない今 (= placement.yaml / world ファイル
+# どおりの姿勢) の xformOp を控える。この後に GUI で prim を動かしても、リセットで
+# ここに戻せるようになる。play() より後だと物体が落ち始めた姿勢を拾ってしまう。
+_capture_manual_reset_targets()
 omni.timeline.get_timeline_interface().play()
 
 # 人を配置したときだけアニメーションをループ再生する設定にする。
@@ -909,6 +1103,10 @@ while kit.is_running():
     # --- reset_world: サービス要求があれば物理ステップ間でここで適用する ---
     if _reset_requested:
         try:
+            # 先に USD の姿勢 (手で動かした静的家具・人・物体の親 Xform) を戻し、
+            # その後で _reset_objects() が動的剛体のワールド姿勢を確定させる。
+            # 逆順にすると親 Xform の復元が剛体のワールド姿勢をずらしてしまう。
+            _restore_manual_xforms()
             _reset_objects()
             _hsr.reset_to_spawn(
                 _robot_spawn['x'], _robot_spawn['y'], _robot_spawn['yaw'])

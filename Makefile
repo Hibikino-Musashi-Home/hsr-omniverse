@@ -193,6 +193,12 @@ ENABLE_STEREO_CAMERAS ?= 0
 # 1 にすると観戦カメラの調整モード (make tune で自動的に 1 になる)
 CAMERA_TUNE ?=
 
+# reset_world の姿勢キャプチャをスポーン root の「サブツリー全体」に広げる (既定 1)。
+# 天板のようなモデル内部のメッシュをギズモで動かしても reset で戻せるようになる。
+# 走査は起動時の 1 回だけなので、そのコストが問題になったときだけ 0 にして
+# root のみの旧挙動へ戻す (実測値は起動ログの [reset_world] captured ... に出る)。
+RESET_DEEP_CAPTURE ?= 1
+
 # isaacsim コンテナへ渡す環境変数の一覧。up (compose 用の変数代入) と
 # run (docker compose exec の -e) で同じ一覧から生成し、片方だけ追加し忘れる
 # のと、`-e -e` のような取りこぼしが起きないようにする。
@@ -245,7 +251,8 @@ SIM_ENV_NAMES = \
 	CAMERA_FRAME_SKIP \
 	RENDER_EVERY_N_STEPS \
 	ENABLE_STEREO_CAMERAS \
-	CAMERA_TUNE
+	CAMERA_TUNE \
+	RESET_DEEP_CAPTURE
 SIM_ENV_ASSIGNMENTS = $(foreach v,$(SIM_ENV_NAMES),$(v)=$($(v)))
 SIM_ENV_EXEC_FLAGS = $(foreach v,$(SIM_ENV_NAMES),-e $(v)=$($(v)))
 
