@@ -75,8 +75,9 @@ services:
       # カメラ調整モード: `make tune` で 1 が渡る。観戦カメラ4台を作るだけで
       # 録画も自動終了もせず、GUI で動かした位置を recordings/tune/ に書き出す。
       - CAMERA_TUNE=${CAMERA_TUNE:-}
-      # アタッチ把持(吸い付き)。`make up GRASP=0` で無効化=物理接触のみで把持。
-      - GRASP_ATTACH=${GRASP_ATTACH:-1}
+      # アタッチ把持(吸い付き)。既定は無効で、物理接触(摩擦)のみで把持する。
+      # 確実に保持させたいときだけ `make up GRASP=1` で有効化する。
+      - GRASP_ATTACH=${GRASP_ATTACH:-0}
       # reset_world の姿勢キャプチャをスポーン root のサブツリー全体に広げる。
       # 0 にすると root のみの旧挙動 (モデル内部のメッシュを手で動かすと戻らない)。
       - RESET_DEEP_CAPTURE=${RESET_DEEP_CAPTURE:-1}

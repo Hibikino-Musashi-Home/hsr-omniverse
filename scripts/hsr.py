@@ -525,13 +525,17 @@ class gripper_apply_force_action_server(gripper_command_action_server):
                 self._action_goal = None
 
 
-# 案A(アタッチ把持)を使うか。recol(衝突)と併用して確実な保持・綺麗なリリースにする。
-# 環境変数 GRASP_ATTACH=0 で無効化できる (make up GRASP=0)。
-# 無効時は指と物体の物理接触(摩擦)だけで掴む「正攻法」になる。
-_ATTACH_GRASP_ENABLED = os.environ.get('GRASP_ATTACH', '1') != '0'
+# 案A(アタッチ把持)を使うか。既定は無効で、指と物体の物理接触(摩擦)だけで
+# 掴む「正攻法」で動く。シミュレーションとして素直な挙動になり、
+# 把持の失敗も物理的に起きるべくして起きる。
+#
+# 有効にすると物体が指に吸い付き、確実な保持と綺麗なリリースになる。
+# 物理調整に手を取られたくないときや、把持より後段を試したいときに使う。
+#   make up GRASP=1
+_ATTACH_GRASP_ENABLED = os.environ.get('GRASP_ATTACH', '0') != '0'
 if not _ATTACH_GRASP_ENABLED:
-    print('[graspA] アタッチ把持は無効 (GRASP_ATTACH=0)。物理接触のみで把持します。',
-          flush=True)
+    print('[graspA] アタッチ把持は無効 (既定)。物理接触のみで把持します。'
+          ' 有効にするには make up GRASP=1', flush=True)
 
 # 真値odom: 台車の odom を Isaac 物理の真値(base_footprint 姿勢)で上書きし、計画・制御・TF を
 # すべて真値で一致させる。車輪スリップや疎な環境でのレーザ破綻を避けられる(Simだから使える手)。
