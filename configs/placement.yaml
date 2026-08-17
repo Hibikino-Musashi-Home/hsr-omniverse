@@ -88,31 +88,98 @@ robot:
 objects:
   drop_clearance: 0.1
 
-  # --- 床に散らばった物体 (東側の探索エリア: Room NW / Room NE) ---
+  # --- 床に散らばった物体 (# Room NEの長机付近) ---
   floor:
-    - object: ycb_011_banana      # Room NW
-      x: 2.8
+    - object: ycb_003_cracker_box 
+      x: 7.55
+      y: 2.7
+      yaw: 1.57
+    - object: ycb_003_cracker_box 
+      x: 7.3
+      y: 2.9
+    - object: ycb_003_cracker_box 
+      x: 7.55
+      y: 3.1
+    - object: ycb_003_cracker_box 
+      x: 7.3
+      y: 3.3
+    - object: ycb_003_cracker_box 
+      x: 7.55
       y: 3.6
-    - object: ycb_013_apple       # ロボット正面0.7m (HSRから少し離した位置)
-      x: 2.4
-      y: 3.5
-    - object: ycb_004_sugar_box   # Room NE
-      x: 6.2
-      y: 3.2
-    - object: ycb_077_rubiks_cube # Room NE
-      x: 5.2
-      y: 4.8
+    - object: ycb_003_cracker_box 
+      x: 7.3
+      y: 3.7
+    - object: ycb_003_cracker_box 
+      x: 7.55
+      y: 4.0
+    - object: ycb_003_cracker_box 
+      x: 7.3
+      y: 4.3
+    - object: ycb_003_cracker_box 
+      x: 7.55
+      y: 4.5
+
+  # --- 床に散らばった物体 (# Room SE の高い机付近) ---
+    - object: ycb_003_cracker_box 
+      x: 7.5
+      y: 0.0
+    - object: ycb_003_cracker_box 
+      x: 7.3
+      y: 0.4
+    - object: ycb_003_cracker_box 
+      x: 7.5
+      y: 0.7
+    - object: ycb_003_cracker_box 
+      x: 7.3
+      y: 1.05
+    - object: ycb_003_cracker_box 
+      x: 7.5
+      y: 1.25
+
+  # --- 床に散らばった物体 (# Room SW の正方形) ---
+    - object: ycb_003_cracker_box 
+      x: 3.3
+      y: -0.4
+    - object: ycb_003_cracker_box 
+      x: 2.7
+      y: -0.4
+    - object: ycb_003_cracker_box 
+      x: 3.3
+      y: 0.2
+    - object: ycb_003_cracker_box 
+      x: 2.7
+      y: 0.2
 
   # --- 家具の上の物体 ---
+  # placements:
+  #   wrc_long_table:        # Room NE の机
+  #     - object: ycb_002_master_chef_can
+  #       dx: -0.3
+  #     - object: ycb_005_tomato_soup_can
+  #       dx: 0.3
   placements:
     wrc_long_table:        # Room NE の机
-      - object: ycb_002_master_chef_can
-        dx: -0.3
       - object: ycb_005_tomato_soup_can
-        dx: 0.3
+        dx: 0.0
+        dy: -0.1
+      - object: ycb_005_tomato_soup_can
+        dx: 0.4
+        dy: 0.05
+      - object: ycb_005_tomato_soup_can
+        dx: -0.4
+        dy: 0.05
 
     wrc_tall_table:        # Room SE の高い机
       - ycb_017_orange
+
+    round_table:           # furniture: で配置する円形テーブル
+      - object: ycb_003_cracker_box
+        dx: -0.1
+        dy: -0.3
+        dz: 1.0
+      - object: ycb_003_cracker_box
+        dx: -0.3
+        dy: -0.15
 
     wrc_bookshelf:         # Room NW の本棚
       - object: ycb_009_gelatin_box

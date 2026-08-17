@@ -105,6 +105,52 @@ KNOWN_MODEL_SURFACES: Dict[str, Dict[str, Any]] = {
     "wrc_frame": {"tops": [], "size": (6.1, 4.2)},
 }
 
+# placement.yaml の furniture: で後から配置する、ローカル USD 家具の置き面。
+# world ファイルの include ではないため、上の KNOWN_MODEL_SURFACES とは別に
+# USD パスごとの実寸を定義する。値は家具 USD の原寸 (scale=1.0) の天板高さ。
+CONFIG_FURNITURE_SURFACES: Dict[str, Dict[str, Any]] = {
+    "restaurant/round_table/model.usd": {
+        "tops": [0.49],
+    },
+}
+
+
+def read_config_furniture(cfg: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """placement.yaml の furniture: から物を置ける家具を読む。
+
+    furniture_spawn は world ファイルの読み込み後に家具を生成するため、従来の
+    read_furniture() だけでは furniture: の家具を placements: の置き台にできなかった。
+    ここでは既知のローカル USD 家具について、YAML の位置・向き・scale から
+    object_placement 用の家具情報を作る。
+    """
+    section = cfg.get("furniture") or []
+    items = section.get("list") or [] if isinstance(section, dict) else section
+    result: Dict[str, Dict[str, Any]] = {}
+    for index, raw in enumerate(items):
+        if not isinstance(raw, dict):
+            continue
+        usd = str(raw.get("usd", ""))
+        spec = CONFIG_FURNITURE_SURFACES.get(usd)
+        if spec is None:
+            continue
+        try:
+            name = str(raw.get("name", f"furniture_{index}"))
+            x = float(raw["x"])
+            y = float(raw["y"])
+            z = float(raw.get("z", 0.0))
+            yaw = math.radians(float(raw.get("yaw", 0.0)))
+            scale = float(raw.get("scale", 1.0))
+        except (KeyError, TypeError, ValueError):
+            log(f"WARNING: furniture[{index}] の配置情報を読めません。スキップ。")
+            continue
+        result[name] = {
+            "x": x,
+            "y": y,
+            "yaw": yaw,
+            "tops": [z + top * scale for top in spec["tops"]],
+        }
+    return result
+
 
 def read_furniture(world_file: str) -> Dict[str, Dict[str, Any]]:
     """world ファイルの <include> から家具を読み、
@@ -373,6 +419,10 @@ def apply_placements(
         return 0
 
     furniture = read_furniture(world_file)
+    # furniture: で定義された既知の USD 家具も placements: の置き台にする。
+    # 同名の world 家具がある場合は、world 側の定義を優先する。
+    for name, info in read_config_furniture(cfg).items():
+        furniture.setdefault(name, info)
     competition_assignments = _competition_assignments(objects_cfg, furniture)
 
     requested = 0   # 設定で要求された物体数
