@@ -62,9 +62,9 @@ robot:
 #     wrc_long_table_0  : 天板 0.40m (1段)。Room SW の片付け先テーブル
 #                         (トレイ・コンテナが乗っているので普段は置かない)
 #     wrc_tall_table    : 天板 0.60m (1段)。Room SE
-#     wrc_bookshelf     : tier 0=0.06 / 1=0.50 / 2=0.80 / 3=1.05 / 4=2.02 (5段)
-#                         Room NW (tier 4 は HSR には高すぎるので通常使わない)
-#     wrc_bookshelf_2   : 同上 (5段)。Room SE の西壁ぎわ
+#     wrc_bookshelf     : place用棚。tier 0=0.06 / 1=0.50 / 2=0.80 /
+#                         3=1.05 / 4=2.02 (tier 4 は HSR には高すぎる)
+#     wrc_bookshelf_2   : pick用棚。同上 (5段)
 #
 # 物体の名前: usd/wrs_models のフォルダ名 (ycb_XXX_...)。
 #   使える名前の一覧: ls usd/wrs_models | grep ycb
@@ -88,106 +88,40 @@ robot:
 objects:
   drop_clearance: 0.1
 
-  # --- 床に散らばった物体 (# Room NEの長机付近) ---
+  # --- 床に散らばった物体 (東側の探索エリア: Room NW / Room NE) ---
   floor:
-    - object: ycb_003_cracker_box 
-      x: 7.55
-      y: 2.7
-      yaw: 1.57
-    - object: ycb_003_cracker_box 
-      x: 7.3
-      y: 2.9
-    - object: ycb_003_cracker_box 
-      x: 7.55
-      y: 3.1
-    - object: ycb_003_cracker_box 
-      x: 7.3
-      y: 3.3
-    - object: ycb_003_cracker_box 
-      x: 7.55
+    # 背の高い物体。上から掴むには縦に長すぎるので、把持方向を考える題材になる。
+    - object: ycb_021_bleach_cleanser   # Room NW (立てて置く)
+      x: 2.8
       y: 3.6
-    - object: ycb_003_cracker_box 
-      x: 7.3
-      y: 3.7
-    - object: ycb_003_cracker_box 
-      x: 7.55
-      y: 4.0
-    - object: ycb_003_cracker_box 
-      x: 7.3
-      y: 4.3
-    - object: ycb_003_cracker_box 
-      x: 7.55
-      y: 4.5
-
-  # --- 床に散らばった物体 (# Room SE の高い机付近) ---
-    - object: ycb_003_cracker_box 
-      x: 7.5
-      y: 0.0
-    - object: ycb_003_cracker_box 
-      x: 7.3
-      y: 0.4
-    - object: ycb_003_cracker_box 
-      x: 7.5
-      y: 0.7
-    - object: ycb_003_cracker_box 
-      x: 7.3
-      y: 1.05
-    - object: ycb_003_cracker_box 
-      x: 7.5
-      y: 1.25
-
-  # --- 床に散らばった物体 (# Room SW の正方形) ---
-    - object: ycb_003_cracker_box 
-      x: 3.3
-      y: -0.4
-    - object: ycb_003_cracker_box 
-      x: 2.7
-      y: -0.4
-    - object: ycb_003_cracker_box 
-      x: 3.3
-      y: 0.2
-    - object: ycb_003_cracker_box 
-      x: 2.7
-      y: 0.2
+    - object: ycb_013_apple       # ロボット正面0.7m (HSRから少し離した位置)
+      x: 2.4
+      y: 3.5
+    - object: ycb_004_sugar_box   # Room NE
+      x: 6.2
+      y: 3.2
+    - object: ycb_077_rubiks_cube # Room NE
+      x: 5.2
+      y: 4.8
 
   # --- 家具の上の物体 ---
-  # placements:
-  #   wrc_long_table:        # Room NE の机
-  #     - object: ycb_002_master_chef_can
-  #       dx: -0.3
-  #     - object: ycb_005_tomato_soup_can
-  #       dx: 0.3
   placements:
     wrc_long_table:        # Room NE の机
+      - object: ycb_002_master_chef_can
+        dx: -0.3
       - object: ycb_005_tomato_soup_can
-        dx: 0.0
-        dy: -0.1
-      - object: ycb_005_tomato_soup_can
-        dx: 0.4
-        dy: 0.05
-      - object: ycb_005_tomato_soup_can
-        dx: -0.4
-        dy: 0.05
+        dx: 0.3
 
     wrc_tall_table:        # Room SE の高い机
       - ycb_017_orange
 
-    round_table:           # furniture: で配置する円形テーブル
-      - object: ycb_003_cracker_box
-        dx: -0.1
-        dy: -0.3
-        dz: 1.0
-      - object: ycb_003_cracker_box
-        dx: -0.3
-        dy: -0.15
-
-    wrc_bookshelf:         # Room NW の本棚
+    wrc_bookshelf:         # place用棚
       - object: ycb_009_gelatin_box
         tier: 1
       - object: ycb_003_cracker_box
         tier: 2
 
-    wrc_bookshelf_2:       # Room SE の本棚
+    wrc_bookshelf_2:       # pick用棚
       - object: ycb_021_bleach_cleanser
         tier: 1
       - object: ycb_017_orange
