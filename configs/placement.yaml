@@ -90,7 +90,8 @@ objects:
 
   # --- 床に散らばった物体 (東側の探索エリア: Room NW / Room NE) ---
   floor:
-    - object: ycb_011_banana      # Room NW
+    # 背の高い物体。上から掴むには縦に長すぎるので、把持方向を考える題材になる。
+    - object: ycb_021_bleach_cleanser   # Room NW (立てて置く)
       x: 2.8
       y: 3.6
     - object: ycb_013_apple       # ロボット正面0.7m (HSRから少し離した位置)
