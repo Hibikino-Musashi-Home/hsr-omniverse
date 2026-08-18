@@ -107,7 +107,23 @@ make                # 引数なし → help
 make up RVIZ=1                  # RViz2 も起動する (既定はオフ)
 make up BASE_DIRECT_DRIVE=0     # 台車を物理車輪駆動に戻す
 make up BASE_TRAJ_P_GAIN=1.0    # whole_body の台車追従を弱める
+make up DRAWER_DAMPING=5        # 引き出しを軽くする (既定 15)
 ```
+
+#### 引き出し (Room SW)
+
+Room SW の段違い棚にあるオレンジの箱 (`trofast_1/2/3`) は、起動時に棚との間へ
+直動ジョイント (`PrismaticJoint`) が張られ、取っ手を掴んで引ける引き出しになる。
+手前方向にだけ 0.30 m スライドし、引ききると止まり、抜け落ちない。
+
+| 変数 | 既定 | 説明 |
+| --- | --- | --- |
+| `DRAWER_JOINTS` | 1 | 0 で引き出し化をやめ、従来の「棚に置いてあるだけの箱」に戻す |
+| `DRAWER_PULL_LIMIT` | 0.30 | 引き出せる距離 [m] |
+| `DRAWER_DAMPING` | 15.0 | 引き心地 (粘性抵抗)。重ければ下げる、勢い余るなら上げる |
+
+起動ログに `[drawer] trofast_1 -> prismatic joint (0..0.30 m, damping=15.0)` が
+3 行出ていれば設定できている。
 
 Isaac Sim の初回起動は 10〜20 分かかる (シェーダーコンパイル、USD 読み込み)。
 2 回目以降はマウントしたキャッシュが効くので速くなる。

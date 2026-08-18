@@ -144,6 +144,15 @@ BASE_COLLISION_MARGIN ?= 0.01
 BASE_KINEMATIC_ANCHOR_MODE ?= usd
 # arm_flex のドライブ力上限 [N*m]。台車搬送時の外乱に負けて落ちるなら上げる。
 ARM_FLEX_MAX_FORCE ?= 300
+# --- 引き出し (Room SW の trofast) ------------------------------------------
+# 段違い棚と trofast を直動ジョイントで繋いで「本物の引き出し」にする (既定 1)。
+# 0 にすると従来の「棚に置いてあるだけの箱」に戻る。
+DRAWER_JOINTS ?= 1
+# 引き出せる距離 [m]。箱の奥行きは 0.4235 m。
+DRAWER_PULL_LIMIT ?= 0.30
+# 引き心地 (粘性抵抗) [N/(m/s)]。重ければ下げる、勢い余るなら上げる。
+DRAWER_DAMPING ?= 15.0
+DRAWER_DAMPING_MAX_FORCE ?= 200.0
 BASE_VELOCITY_WRITE ?= 1
 BASE_TRAJ_P_GAIN ?= 2.0
 BASE_TRAJ_D_GAIN ?= 0.5
@@ -220,6 +229,10 @@ SIM_ENV_NAMES = \
 	BASE_COLLISION_MARGIN \
 	BASE_KINEMATIC_ANCHOR_MODE \
 	ARM_FLEX_MAX_FORCE \
+	DRAWER_JOINTS \
+	DRAWER_PULL_LIMIT \
+	DRAWER_DAMPING \
+	DRAWER_DAMPING_MAX_FORCE \
 	BASE_VELOCITY_WRITE \
 	BASE_TRAJ_P_GAIN \
 	BASE_TRAJ_D_GAIN \
@@ -296,6 +309,9 @@ help:
 	@echo "  make up BASE_KINEMATIC_DRIVE=0 # 位置追従をやめ平面ジョイントの動剛体へ戻す"
 	@echo "                                 # (追従が崩れるので切り分け用。既定は 1)"
 	@echo "  make up BASE_KINEMATIC_COLLISION=0 # 台車の壁クランプを外す (壁をすり抜ける)"
+	@echo "  make up DRAWER_DAMPING=5       # 引き出しを軽くする (既定 15)"
+	@echo "  make up DRAWER_PULL_LIMIT=0.20 # 引き出せる距離を短くする (既定 0.30m)"
+	@echo "  make up DRAWER_JOINTS=0        # 引き出し化をやめ「置いてあるだけの箱」に戻す"
 	@echo "  make up TIME=600   # 競技モード: 600秒(シミュ内時間)で自動終了。"
 	@echo "                     # 4方向の観戦カメラで録画し recordings/ に mp4 保存"
 	@echo "  make tune          # カメラ調整モード: GUI で 4台を動かすと"
