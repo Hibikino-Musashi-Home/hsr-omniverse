@@ -1316,9 +1316,11 @@ class hsr:
         hand_camera_prim.GetProjectionAttr().Set('perspective')
         hand_camera_prim.GetFocalLengthAttr().Set(205.469637099 * 0.003)
         hand_camera_prim.GetFocusDistanceAttr().Set(400)
-        # near=0.07m, far=100m。既定near=1mだと1m以内の近接物体が消えるので小さくする。
-        # 頭部RGBDの自己オクルージョン対策と値を揃え、全カメラ0.07mに統一。far=100mは室内に十分。
-        hand_camera_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.07, 100.0))
+        # near=0.01m, far=100m。ハンドカメラだけ他より近くする。
+        # 他カメラと同じ 0.07m だと、カメラから 6.2cm にある指の付け根が
+        # クリップされて消え、指が途中から生えて見える (切断面の向こうが透ける)。
+        #   カメラ -> proximal 0.062m / distal 0.083m / 指先 0.103m
+        hand_camera_prim.GetClippingRangeAttr().Set(Gf.Vec2f(0.01, 100.0))
 
         # ステレオ無効時も属性自体は必ず生えている状態にしておく (AttributeError 回避)。
         self.ros_camera_graph_l = None
