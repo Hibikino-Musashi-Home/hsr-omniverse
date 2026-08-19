@@ -452,6 +452,13 @@ model_root = os.path.join(repo_root, 'usd', 'wrs_models')
 if not os.path.exists(model_root):
     model_root = '/app/usd/wrs_models'
 
+# 競技当日に追加する未知物体。wrs_models と同じく
+#   <object名>/model.usd
+# の構成にしておけば placement.yaml の object: から参照できる。
+unknown_object_root = os.path.join(repo_root, 'usd', 'unknown_objects')
+if not os.path.exists(unknown_object_root):
+    unknown_object_root = '/app/usd/unknown_objects'
+
 # YCB 以外の「物理設定を持たないモデル」を読み込んだときに付ける既定の質量 (kg)。
 # YCB は 1 つずつ実測値が model.usd に入っているので、この値は通常使われない。
 DEFAULT_OBJECT_MASS_KG = 0.2
@@ -724,11 +731,13 @@ def drop_object(gazebo_name, name, x, y, z, yaw=0.0, roll=0.0, pitch=0.0):
     # まとめて "_" に置換し、1 階層の安全な prim 名にする。
     safe_name = gazebo_name.replace('-', '_').replace('/', '_')
     stage_path = f'/{safe_name}'
-    # name は usd/wrs_models/ 内のフォルダ名 (例: 'ycb_011_banana')。
-    # この実習構成では物体は YCB オブジェクトのみを使う。
+    # name は usd/wrs_models/ または usd/unknown_objects/ 内のフォルダ名。
+    # 例: 'ycb_011_banana', 'logitech_m310_mouse'
     model_candidates = [
         os.path.join(model_root, name, 'model.usd'),
+        os.path.join(unknown_object_root, name, 'model.usd'),
         '/app/usd/wrs_models/' + name + '/model.usd',
+        '/app/usd/unknown_objects/' + name + '/model.usd',
     ]
     model_path = next((p for p in model_candidates if os.path.exists(p)), None)
     if model_path is None:

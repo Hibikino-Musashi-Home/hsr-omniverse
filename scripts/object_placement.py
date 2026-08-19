@@ -22,9 +22,8 @@ from __future__ import annotations
 import math
 import os
 import re
-import secrets
 import xml.etree.ElementTree as ET
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List
 
 import yaml
 
@@ -104,6 +103,52 @@ KNOWN_MODEL_SURFACES: Dict[str, Dict[str, Any]] = {
     # 部屋の壁 (置く対象ではないが、部屋の外周計算に使う)
     "wrc_frame": {"tops": [], "size": (6.1, 4.2)},
 }
+
+# placement.yaml の furniture: で後から配置する、ローカル USD 家具の置き面。
+# world ファイルの include ではないため、上の KNOWN_MODEL_SURFACES とは別に
+# USD パスごとの実寸を定義する。値は家具 USD の原寸 (scale=1.0) の天板高さ。
+CONFIG_FURNITURE_SURFACES: Dict[str, Dict[str, Any]] = {
+    "restaurant/round_table/model.usd": {
+        "tops": [0.49],
+    },
+}
+
+
+def read_config_furniture(cfg: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """placement.yaml の furniture: から物を置ける家具を読む。
+
+    furniture_spawn は world ファイルの読み込み後に家具を生成するため、従来の
+    read_furniture() だけでは furniture: の家具を placements: の置き台にできなかった。
+    ここでは既知のローカル USD 家具について、YAML の位置・向き・scale から
+    object_placement 用の家具情報を作る。
+    """
+    section = cfg.get("furniture") or []
+    items = section.get("list") or [] if isinstance(section, dict) else section
+    result: Dict[str, Dict[str, Any]] = {}
+    for index, raw in enumerate(items):
+        if not isinstance(raw, dict):
+            continue
+        usd = str(raw.get("usd", ""))
+        spec = CONFIG_FURNITURE_SURFACES.get(usd)
+        if spec is None:
+            continue
+        try:
+            name = str(raw.get("name", f"furniture_{index}"))
+            x = float(raw["x"])
+            y = float(raw["y"])
+            z = float(raw.get("z", 0.0))
+            yaw = math.radians(float(raw.get("yaw", 0.0)))
+            scale = float(raw.get("scale", 1.0))
+        except (KeyError, TypeError, ValueError):
+            log(f"WARNING: furniture[{index}] の配置情報を読めません。スキップ。")
+            continue
+        result[name] = {
+            "x": x,
+            "y": y,
+            "yaw": yaw,
+            "tops": [z + top * scale for top in spec["tops"]],
+        }
+    return result
 
 
 def read_furniture(world_file: str) -> Dict[str, Dict[str, Any]]:
@@ -269,85 +314,6 @@ def _parse_floor_item(item: Any) -> Dict[str, Any]:
     }
 
 
-SlotKey = Tuple[str, str, int]
-
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None or raw == "":
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _competition_assignments(
-    objects_cfg: Dict[str, Any],
-    furniture: Dict[str, Dict[str, Any]],
-) -> Optional[Dict[SlotKey, str]]:
-    """競技モード用に候補物体を有効な既存スロットへ割り当てる。
-
-    通常モードでは None を返し、placement.yaml の object 指定をそのまま使う。
-    競技モードでは位置・向き・家具・tierを変更せず、object名だけを置き換える。
-    """
-    if not _env_bool("OBJECT_RANDOMIZE"):
-        return None
-
-    raw_pool = objects_cfg.get("competition_pool") or []
-    if not isinstance(raw_pool, list) or not raw_pool:
-        raise ValueError(
-            "competition mode requires a non-empty objects.competition_pool list"
-        )
-
-    pool: List[str] = []
-    for index, value in enumerate(raw_pool):
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(
-                f"objects.competition_pool[{index}] must be a non-empty string"
-            )
-        pool.append(value.strip())
-
-    slots: List[Tuple[SlotKey, str]] = []
-    placements = objects_cfg.get("placements") or {}
-    for furn_name, items in placements.items():
-        if furn_name not in furniture or not items:
-            continue
-        tops = furniture[furn_name]["tops"]
-        for index, raw in enumerate(items):
-            item = _parse_item(raw)
-            tier = item["tier"]
-            if 0 <= tier < len(tops):
-                key = ("placement", furn_name, index)
-                slots.append((key, f"{furn_name}[{index}]/tier={tier}"))
-
-    for index, raw in enumerate(objects_cfg.get("floor") or []):
-        item = _parse_floor_item(raw)
-        key = ("floor", "", index)
-        slots.append((key, f"floor[{index}]@({item['x']:.3f},{item['y']:.3f})"))
-
-    if not slots:
-        raise ValueError("competition mode found no valid placement slots")
-    if len(pool) < len(slots):
-        raise ValueError(
-            f"competition_pool has {len(pool)} objects, but {len(slots)} slots are required"
-        )
-
-    rng = secrets.SystemRandom()
-    selected_objects = rng.sample(pool, len(slots))
-    rng.shuffle(slots)
-    assignments = {
-        key: object_name
-        for (key, _description), object_name in zip(slots, selected_objects)
-    }
-
-    descriptions = dict(slots)
-    log(
-        f"competition mode: selected={len(selected_objects)}/{len(pool)}, "
-        f"slots={len(slots)}"
-    )
-    for key, object_name in assignments.items():
-        log(f"competition assignment: {descriptions[key]} <- {object_name}")
-    return assignments
-
-
 def apply_placements(
     world_file: str,
     drop_func: Callable[..., None],
@@ -368,12 +334,15 @@ def apply_placements(
     placements = objects_cfg.get("placements") or {}
     clearance = float(objects_cfg.get("drop_clearance", 0.05))
 
-    if not placements and not objects_cfg.get("floor"):
-        log("WARNING: 'placements' も 'floor' も空です。配置する物体がありません。")
+    if not placements and not objects_cfg.get("floor") and not objects_cfg.get("obstacles"):
+        log("WARNING: 'placements' / 'floor' / 'obstacles' が空です。配置する物体がありません。")
         return 0
 
     furniture = read_furniture(world_file)
-    competition_assignments = _competition_assignments(objects_cfg, furniture)
+    # furniture: で定義された既知の USD 家具も placements: の置き台にする。
+    # 同名の world 家具がある場合は、world 側の定義を優先する。
+    for name, info in read_config_furniture(cfg).items():
+        furniture.setdefault(name, info)
 
     requested = 0   # 設定で要求された物体数
     placed = 0      # 実際に配置できた数
@@ -390,18 +359,9 @@ def apply_placements(
 
         for idx, raw in enumerate(items):
             it = _parse_item(raw)
-            slot_key = ("placement", furn_name, idx)
-            if competition_assignments is not None and slot_key not in competition_assignments:
-                continue
-            obj_name = (
-                competition_assignments[slot_key]
-                if competition_assignments is not None
-                else it["object"]
-            )
+            obj_name = it["object"]
             if not isinstance(obj_name, str) or not obj_name:
-                raise ValueError(
-                    f'placements.{furn_name}[{idx}] requires "object" in normal mode'
-                )
+                raise ValueError(f'placements.{furn_name}[{idx}] requires "object"')
             dx, dy = it["dx"], it["dy"]
             tier = it["tier"]
 
@@ -442,16 +402,9 @@ def apply_placements(
     floor_items = objects_cfg.get("floor") or []
     for idx, raw in enumerate(floor_items):
         it = _parse_floor_item(raw)
-        slot_key = ("floor", "", idx)
-        if competition_assignments is not None and slot_key not in competition_assignments:
-            continue
-        obj_name = (
-            competition_assignments[slot_key]
-            if competition_assignments is not None
-            else it["object"]
-        )
+        obj_name = it["object"]
         if not isinstance(obj_name, str) or not obj_name:
-            raise ValueError(f'objects.floor[{idx}] requires "object" in normal mode')
+            raise ValueError(f'objects.floor[{idx}] requires "object"')
         wx, wy = it["x"], it["y"]
         wz = it["z"] + clearance  # z=0 で床、z>0 で机の天板など指定高さの上に落として着地。
 
@@ -469,6 +422,33 @@ def apply_placements(
             placed += 1
         else:
             failed.append(f"floor/{obj_name}")
+
+    # --- 障害物 (得点対象外) ---
+    # 座標形式と物理スポーンは floor と同じだが、設定上の役割を分離する。
+    # Seedごとに Coffee can / Toy airplane のいずれか1個を候補4位置の1つへ置く。
+    obstacle_items = objects_cfg.get("obstacles") or []
+    for idx, raw in enumerate(obstacle_items):
+        it = _parse_floor_item(raw)
+        obj_name = it["object"]
+        if not isinstance(obj_name, str) or not obj_name:
+            raise ValueError(f'objects.obstacles[{idx}] requires "object"')
+        wx, wy = it["x"], it["y"]
+        wz = it["z"] + clearance
+
+        gazebo_name = f"obstacle__{obj_name}__{idx}"
+        requested += 1
+        result = drop_func(
+            gazebo_name,
+            obj_name,
+            wx, wy, wz,
+            yaw=it["yaw"],
+            roll=it["roll"],
+            pitch=it["pitch"],
+        )
+        if result:
+            placed += 1
+        else:
+            failed.append(f"obstacle/{obj_name}")
 
     log(f"placed {placed}/{requested} objects from {path}")
     if failed:

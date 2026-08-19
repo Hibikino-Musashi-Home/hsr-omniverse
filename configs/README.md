@@ -8,7 +8,8 @@
 | ファイル | 用途 |
 |---|---|
 | [`placement.yaml`](./placement.yaml) | シーン初期配置 (`robot` ロボット位置 / `objects` YCB物体配置) をまとめた設定 |
-| [`placement.compe.yaml`](./placement.compe.yaml) | `make up localhost compe`専用のYCB候補と配置スロット |
+| [`placement.compe.yaml`](./placement.compe.yaml) | 競技のObject Listと全Seed共通スポーン位置 |
+| `placement.compe_seed1.yaml` 〜 `placement.compe_seed4.yaml` | `compe_seed=1..4` で選ぶ競技用固定配置 |
 | [`dressing.yaml`](./dressing.yaml) | シーン演出 (床テクスチャ + 周囲背景画像 + 照明) のプリセット定義 |
 
 ## クイックスタート
@@ -37,7 +38,7 @@ make up
 
 ```bash
 make down
-make up localhost compe
+make up localhost compe_seed=1
 ```
 
 `down` を先にやるのが大事(`up` だけだと既存コンテナが残っていて Python プロセスが再起動されず、YAML の変更が反映されないことがある)。
