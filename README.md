@@ -302,7 +302,8 @@ make dev down   # 停止
 ├── recordings/    # 競技モードの録画出力 (git 管理外)
 ├── scene_dressing/# 部屋の見た目 (テクスチャ・マテリアル) 関連
 ├── scripts/       # 実行スクリプト (launch_isaacsim.py, hsr.py, arena_cameras.py 他)
-├── usd/           # USD アセット (hsrb/ と wrs_models/ はサブモジュール)
+├── usd/           # USD アセット (hsrb/ と wrs_models/ はサブモジュール、
+│               #   isaac_offline/ は人モデル+モーション。オフライン用に同梱)
 └── worlds/        # .world ファイル (家具・壁の配置)
 ```
 

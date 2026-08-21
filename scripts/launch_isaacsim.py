@@ -815,8 +815,9 @@ def drop_object(gazebo_name, name, x, y, z, yaw=0.0, roll=0.0, pitch=0.0):
 object_placement.apply_placements(world_file, drop_object)
 
 # placement.yaml の people: セクションに従って「人」を配置する。
-# この実習構成では people は空 (list: []) にしてあるので何も置かれない
-# (呼び出し自体は残してあり、設定に人を書けば動く)。
+# 既定では people.list が空なので何も置かれない (呼び出しは常に残す)。
+# 人モデル/モーションは usd/isaac_offline/ に同梱済みなので、placement.yaml に
+# 人を書けばネット無しでそのまま出せる。
 # 戻り値: (配置人数, ループ開始秒, ループ終了秒)。
 _num_people, _people_loop_start, _people_loop_end = people_spawn.spawn_people(
     assets_root_path, kit
