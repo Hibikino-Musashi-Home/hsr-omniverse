@@ -90,7 +90,7 @@ objects:
     - object: ycb_051_large_clamp  # Task
       x: 7.3
       y: 1.05
-    - object: ycb_040_large_marker  # Shape
+    - object: ycb_054_softball  # Shape
       x: 7.5
       y: 1.25
 
@@ -137,12 +137,8 @@ objects:
     wrc_bookshelf_2:
       - object: ycb_015_peach  # Food
         tier: 1
-        dy: -0.05
-        dx: 0.1
-      - object: ycb_054_softball # Task
+      - object: ycb_040_large_marker  # Task
         tier: 2
-        dy: -0.05
-        dx: 0.0
 
 # round_tableの天板位置をobject_placement.pyが計算するための定義。
 furniture:
