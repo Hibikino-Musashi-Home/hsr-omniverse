@@ -33,8 +33,8 @@ competition:
       - ycb_040_large_marker
       - ycb_052_extra_large_clamp
     Unknown:
-      - logitech_m310_mouse
-      - coca_cola_bottle
+      - dualshock
+      - hamburger
   shelf_place_samples:
     Food: ycb_011_banana
     Task: ycb_071_nine_hole_peg_test
@@ -48,7 +48,7 @@ objects:
 
   # 得点対象: 長机前の床9個
   floor:
-    - object: coca_cola_bottle  # Unknown
+    - object: hamburger  # Unknown
       x: 7.55
       y: 2.7
       yaw: 1.57
@@ -135,7 +135,7 @@ objects:
 
     # 得点対象: pick用棚の2個
     wrc_bookshelf_2:
-      - object: logitech_m310_mouse  # Unknown
+      - object: dualshock  # Unknown
         tier: 1
         dx: 0.05
         dy: -0.05

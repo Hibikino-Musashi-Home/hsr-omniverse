@@ -11,6 +11,12 @@
 - object: coca_cola_bottle
   x: 2.3
   y: 1.0
+- object: hamburger
+  x: 2.6
+  y: 1.0
+- object: dualshock
+  x: 2.9
+  y: 1.0
 ```
 
 `model.usd` は、USDZ から展開した `source.usdc` と同じディレクトリ内のテクスチャを

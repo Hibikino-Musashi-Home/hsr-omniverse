@@ -74,6 +74,8 @@ objects:
     Unknown:
       - {name: Logitech M310 Mouse, model: logitech_m310_mouse}
       - {name: Coca-Cola Bottle,    model: coca_cola_bottle}
+      - {name: Hamburger,            model: hamburger}
+      - {name: DualSense Controller, model: dualshock}
 
     Obstacle:
       - {name: Coffee can,   model: ycb_002_master_chef_can}

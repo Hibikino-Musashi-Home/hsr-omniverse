@@ -33,8 +33,8 @@ competition:
       - ycb_036_wood_block
       - ycb_040_large_marker
     Unknown:
-      - logitech_m310_mouse
-      - coca_cola_bottle
+      - dualshock
+      - hamburger
   shelf_place_samples:
     Food: ycb_007_tuna_fish_can
     Task: ycb_050_medium_clamp
@@ -58,7 +58,7 @@ objects:
     - object: ycb_025_mug  # Kitchen
       x: 7.55
       y: 3.1
-    - object: coca_cola_bottle  # Unknown
+    - object: hamburger  # Unknown
       x: 7.3
       y: 3.3
     - object: ycb_005_tomato_soup_can  # Food
@@ -103,7 +103,7 @@ objects:
   placements:
     # 得点対象: 長机上3個
     wrc_long_table:
-      - object: logitech_m310_mouse  # Unknown
+      - object: dualshock  # Unknown
         dx: 0.0
         dy: -0.1
       - object: ycb_059_chain  # Shape

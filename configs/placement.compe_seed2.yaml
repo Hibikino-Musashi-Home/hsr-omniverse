@@ -33,8 +33,8 @@ competition:
       - ycb_051_large_clamp
       - ycb_071_nine_hole_peg_test
     Unknown:
-      - logitech_m310_mouse
-      - coca_cola_bottle
+      - dualshock
+      - hamburger
   shelf_place_samples:
     Food: ycb_010_potted_meat_can
     Task: ycb_073-a_lego_duplo
@@ -55,7 +55,7 @@ objects:
     - object: ycb_051_large_clamp  # Task
       x: 7.3
       y: 2.9
-    - object: logitech_m310_mouse  # Unknown
+    - object: dualshock  # Unknown
       x: 7.55
       y: 3.1
     - object: ycb_063-a_marbles  # Shape
@@ -81,7 +81,7 @@ objects:
     - object: ycb_036_wood_block  # Task
       x: 7.5
       y: 0.0
-    - object: coca_cola_bottle  # Unknown
+    - object: hamburger  # Unknown
       x: 7.3
       y: 0.4
     - object: ycb_040_large_marker  # Task
