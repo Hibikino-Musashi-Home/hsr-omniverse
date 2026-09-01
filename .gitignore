@@ -7,3 +7,6 @@ __pycache__/
 
 # 競技モードの録画出力 (make up TIME=...)
 recordings/
+
+# ルールブックなど
+*.pdf

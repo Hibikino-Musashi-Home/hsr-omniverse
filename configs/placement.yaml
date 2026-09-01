@@ -4,7 +4,7 @@
 #
 # 「ロボット・物体」の最初の置き方をまとめた設定ファイル。
 #   robot:    ロボット (HSR) の初期位置
-#   objects:  YCB 物体をどこに置くか (家具の上 / 床)
+#   objects:  PaP ルールブックの物体をどこに置くか (家具の上 / 床)
 #   people:   人の配置 (既定は出さない。出すなら people: を参照)
 #
 # ★ 座標系: ロボットのスタート地点が原点 (0,0)、正面が +X。
@@ -20,10 +20,10 @@
 #                         y=1.6 の壁は x 1.8〜3.0 / 5.8〜7.0
 #   - 外から入る入口は西壁の1箇所: x=0.4, y -0.6〜0.6。
 #     ロボットは原点 (0,0) でその正面 0.4m に立ち、+X を向いている
-#   - Room SW (西下): 片付け1 (引き出し・trofast・長机+トレイ/コンテナ)
-#   - Room SE (東下): 片付け2 (ビン2・高い机・本棚2つ目)
-#   - Room NW (西上): 探索1 (本棚・ソファ + 床の散乱物体)
-#   - Room NE (東上): 探索2 (長机・緑ビン・円形テーブル+椅子 + 床の散乱物体)
+#   - Room SW (西下): 片付け先 (引き出し・trofast・長机+トレイ/コンテナ)
+#   - Room SE (東下): ゴミ箱2台・Side Table・本棚
+#   - Room NW (西上): Cabinet (本棚)・ソファ
+#   - Room NE (東上): Bowl/Spoon 用の指定台・緑ビン・Dining Table (円形机)+椅子
 #
 # 編集後の反映: make down && make up  (configs/ は bind mount なのでリビルド不要)
 
@@ -53,18 +53,24 @@ robot:
 
 
 # ============================================================
-# objects: 物体配置 (YCB オブジェクトのみ)
+# objects: PaP 物体の初期配置
 # ============================================================
 #
 # 家具の名前: worlds/carrobo.world の <include><name> と一致させること。
 #   物を置ける家具と段 (tier):
-#     wrc_long_table    : 天板 0.40m (1段)。Room NE の机
+#     round_table       : Dining Table。Room NE の円形机 (furniture: で配置)
+#     wrc_long_table    : Bowl/Spoon 用の指定台。Room NE の机
+#     wrc_tall_table    : Extra Surface として選択した Side Table。Room SE
 #     wrc_long_table_0  : 天板 0.40m (1段)。Room SW の片付け先テーブル
 #                         (トレイ・コンテナが乗っているので普段は置かない)
-#     wrc_tall_table    : 天板 0.60m (1段)。Room SE
 #     wrc_bookshelf     : place用棚。tier 0=0.06 / 1=0.50 / 2=0.80 /
 #                         3=1.05 / 4=2.02 (tier 4 は HSR には高すぎる)
-#     wrc_bookshelf_2   : pick用棚。同上 (5段)
+#
+# PaP の対応:
+#   - Dining Table: fork / mug / plate / softball (table-trash) / apple / Rubik's cube
+#   - Floor trash : baseball。wrc_bin_black の近くの床
+#   - Cabinet     : wrc_bookshelf（Milk/Cereal はモデル追加後に有効化）
+#   - Extra Surface: Side Table = wrc_tall_table。共通物体は大会指定後に有効化
 #
 # 物体の名前: usd/wrs_models のフォルダ名 (ycb_XXX_...)。
 #   使える名前の一覧: ls usd/wrs_models | grep ycb
@@ -88,44 +94,61 @@ robot:
 objects:
   drop_clearance: 0.1
 
-  # --- 床に散らばった物体 (東側の探索エリア: Room NW / Room NE) ---
+  # --- Floor Object: ゴミ箱 (wrc_bin_black) 近くの床に置くゴミ 1個 ---
   floor:
-    # 背の高い物体。上から掴むには縦に長すぎるので、把持方向を考える題材になる。
-    - object: ycb_021_bleach_cleanser   # Room NW (立てて置く)
-      x: 2.8
-      y: 3.6
-    - object: ycb_013_apple       # ロボット正面0.7m (HSRから少し離した位置)
-      x: 2.4
-      y: 3.5
-    - object: ycb_004_sugar_box   # Room NE
-      x: 6.2
-      y: 3.2
-    - object: ycb_077_rubiks_cube # Room NE
-      x: 5.2
-      y: 4.8
+    - object: ycb_055_baseball
+      x: 7.9
+      y: -1.45
 
-  # --- 家具の上の物体 ---
+  # --- Dining Table setting: 食後の配置 6個 ---
+  # round_table は Dining Table として使う。softball を「卓上のゴミ」に指定する。
   placements:
-    wrc_long_table:        # Room NE の机
-      - object: ycb_002_master_chef_can
-        dx: -0.3
-      - object: ycb_005_tomato_soup_can
-        dx: 0.3
+    round_table:
+      - object: ycb_029_plate             # tableware → dishwasher
+        dx: 0.00
+        dy: 0.00
+      - object: ycb_025_mug               # tableware → dishwasher
+        dx: 0.25
+        dy: 0.15
+      - object: ycb_030_fork              # cutlery → dishwasher
+        dx: -0.28
+        dy: 0.10
+        yaw: 1.57
+      - object: ycb_054_softball          # table-trash → trash bin
+        dx: -0.28
+        dy: -0.23
+      - object: ycb_013_apple             # known other object → Cabinet の Food 群
+        dx: 0.00
+        dy: -0.30
+      - object: ycb_077_rubiks_cube       # known other object → Cabinet の Task 群
+        dx: 0.30
+        dy: -0.20
 
-    wrc_tall_table:        # Room SE の高い机
-      - ycb_017_orange
+    # Breakfast items: Kitchen 内の指定台。最終的には Dining Table に並べる。
+    wrc_long_table:
+      - object: ycb_024_bowl
+        dx: -0.25
+      - object: ycb_031_spoon
+        dx: 0.25
+        yaw: 1.57
 
-    wrc_bookshelf:         # place用棚
-      - object: ycb_009_gelatin_box
-        tier: 1
-      - object: ycb_003_cracker_box
-        tier: 2
+    # Extra Surface: Side Table (wrc_tall_table)。
+    # 共通物体は Rulebook Figure 3.2 / Setup Days で指定されるため、確定まで空にする。
+    # wrc_tall_table:
+    #   - object: <common_object_1>
+    #   - object: <common_object_2>
 
-    wrc_bookshelf_2:       # pick用棚
-      - object: ycb_021_bleach_cleanser
-        tier: 1
-      - object: ycb_017_orange
-        tier: 2
+    # Cabinet: Milk と Cereal は usd/wrs_models に該当モデルがないため、
+    # モデルを追加したら respective category の隣の棚段に配置する。
+    # wrc_bookshelf:
+    #   - object: <milk_model>
+    #     tier: 1
+    #   - object: <cereal_model>
+    #     tier: 2
+
+    # Dishwasher tab も該当モデルがない。モデル追加後、キッチン内の指定台に置く。
+    # - object: <dishwasher_tab_model>
+    #   dx: 0.45
 
 
 # ============================================================
