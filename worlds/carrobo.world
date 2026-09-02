@@ -160,26 +160,8 @@
       <pose>2.9 -1.95 0 0 0 3.1416</pose>
       <static>true</static>
     </include>
-    <include>
-      <name>wrc_tray_1</name>
-      <uri>model://wrc_tray</uri>
-      <pose>3.35 -1.95 0.4 0 0 3.1416</pose>
-    </include>
-    <include>
-      <name>wrc_tray_2</name>
-      <uri>model://wrc_tray</uri>
-      <pose>3.05 -1.95 0.4 0 0 3.1416</pose>
-    </include>
-    <include>
-      <name>wrc_container_a</name>
-      <uri>model://wrc_container_a</uri>
-      <pose>2.8 -1.95 0.4 0 0 1.5708</pose>
-    </include>
-    <include>
-      <name>wrc_container_b</name>
-      <uri>model://wrc_container_b</uri>
-      <pose>2.5 -1.95 0.4 0 0 1.5708</pose>
-    </include>
+    <!-- wrc_long_table_0 は PaP の Extra Surface (Side Table) として使うため、
+         天板上の tray / container は配置しない。 -->
 
     <!-- ==== Room SE (片付け2): ビン2 + 高い机 + 本棚 ==== -->
     <include>

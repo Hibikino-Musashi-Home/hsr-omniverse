@@ -20,8 +20,8 @@
 #                         y=1.6 の壁は x 1.8〜3.0 / 5.8〜7.0
 #   - 外から入る入口は西壁の1箇所: x=0.4, y -0.6〜0.6。
 #     ロボットは原点 (0,0) でその正面 0.4m に立ち、+X を向いている
-#   - Room SW (西下): 片付け先 (引き出し・trofast・長机+トレイ/コンテナ)
-#   - Room SE (東下): ゴミ箱2台・Side Table・本棚
+#   - Room SW (西下): Extra Surface (Side Table)・引き出し・trofast
+#   - Room SE (東下): ゴミ箱2台・Dishwasher・本棚
 #   - Room NW (西上): Cabinet (本棚)・ソファ
 #   - Room NE (東上): Bowl/Spoon 用の指定台・緑ビン・Dining Table (円形机)+椅子
 #
@@ -60,17 +60,18 @@ robot:
 #   物を置ける家具と段 (tier):
 #     round_table       : Dining Table。Room NE の円形机 (furniture: で配置)
 #     wrc_long_table    : Bowl/Spoon 用の指定台。Room NE の机
-#     wrc_tall_table    : Extra Surface として選択した Side Table。Room SE
-#     wrc_long_table_0  : 天板 0.40m (1段)。Room SW の片付け先テーブル
-#                         (トレイ・コンテナが乗っているので普段は置かない)
-#     wrc_bookshelf     : place用棚。tier 0=0.06 / 1=0.50 / 2=0.80 /
+#     wrc_long_table_0  : Extra Surface として選択した Side Table。Room SW
+#                         天板 0.40m (1段)。共通物体だけを置く
+#     wrc_tall_table    : Dishwasher。Room SE
+#     wrc_bookshelf     : Shelf。tier 0=0.06 / 1=0.50 / 2=0.80 /
 #                         3=1.05 / 4=2.02 (tier 4 は HSR には高すぎる)
+#     wrc_bookshelf_2   : Cabinet。段の高さは wrc_bookshelf と同じ
 #
 # PaP の対応:
 #   - Dining Table: fork / mug / plate / softball (table-trash) / apple / Rubik's cube
 #   - Floor trash : baseball。wrc_bin_black の近くの床
-#   - Cabinet     : wrc_bookshelf（Milk/Cereal はモデル追加後に有効化）
-#   - Extra Surface: Side Table = wrc_tall_table。共通物体は大会指定後に有効化
+#   - Cabinet     : wrc_bookshelf_2（Milk/Cereal を respective category の隣に置く）
+#   - Extra Surface: Side Table = wrc_long_table_0。Red Bull と Toothpaste を置く
 #
 # 物体の名前: usd/wrs_models のフォルダ名 (ycb_XXX_...)。
 #   使える名前の一覧: ls usd/wrs_models | grep ycb
@@ -132,19 +133,19 @@ objects:
         dx: 0.25
         yaw: 1.57
 
-    # Extra Surface: Side Table (wrc_tall_table)。
-    # 共通物体は Rulebook Figure 3.2 / Setup Days で指定されるため、確定まで空にする。
-    # wrc_tall_table:
-    #   - object: <common_object_1>
-    #   - object: <common_object_2>
+    # Extra Surface: Side Table (wrc_long_table_0)。共通物体 2個のみを置く。
+    wrc_long_table_0:
+      - object: drink/red_bull
+        dx: -0.10
+      - object: cleaning_supply/toothpaste
+        dx: 0.10
 
-    # Cabinet: Milk と Cereal は usd/wrs_models に該当モデルがないため、
-    # モデルを追加したら respective category の隣の棚段に配置する。
-    # wrc_bookshelf:
-    #   - object: <milk_model>
-    #     tier: 1
-    #   - object: <cereal_model>
-    #     tier: 2
+    # Cabinet: Milk と Cereal は respective category の隣の棚段に置く。
+    wrc_bookshelf_2:
+      - object: drink/milk
+        tier: 1
+      - object: food/cornflakes_1
+        tier: 2
 
     # Dishwasher tab も該当モデルがない。モデル追加後、キッチン内の指定台に置く。
     # - object: <dishwasher_tab_model>
