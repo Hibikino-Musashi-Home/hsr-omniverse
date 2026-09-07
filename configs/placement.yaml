@@ -106,24 +106,24 @@ objects:
   placements:
     round_table:
       - object: ycb_029_plate             # tableware → dishwasher
-        dx: 0.00
-        dy: 0.00
-      - object: ycb_025_mug               # tableware → dishwasher
-        dx: 0.25
-        dy: 0.15
-      - object: ycb_030_fork              # cutlery → dishwasher
-        dx: -0.28
-        dy: 0.10
-        yaw: 1.57
-      - object: ycb_054_softball          # table-trash → trash bin
-        dx: -0.28
-        dy: -0.23
-      - object: ycb_013_apple             # known other object → Cabinet の Food 群
-        dx: 0.00
-        dy: -0.30
-      - object: ycb_077_rubiks_cube       # known other object → Cabinet の Task 群
-        dx: 0.30
-        dy: -0.20
+        dx: -0.12
+        dy: -0.15
+      #- object: ycb_025_mug               # tableware → dishwasher
+      #  dx: 0.00
+      #  dy: -0.30
+      #- object: ycb_030_fork              # cutlery → dishwasher
+      #  dx: -0.28
+      #  dy: 0.10
+      #  yaw: 1.57
+      # - object: cleaning_supply/toothpaste          # table-trash → trash bin
+      #   dx: -0.23
+      #   dy: -0.21
+      # - object: ycb_013_apple             # known other object → Cabinet の Food 群
+      #   dx: 0.00
+      #   dy: -0.30
+      # - object: drink/red_bull       # known other object → Cabinet の Task 群
+      #   dx: 0.30
+      #   dy: -0.20
 
     # Breakfast items: Kitchen 内の指定台。最終的には Dining Table に並べる。
     wrc_long_table:
@@ -137,7 +137,7 @@ objects:
     wrc_long_table_0:
       - object: drink/red_bull
         dx: -0.10
-      - object: cleaning_supply/toothpaste
+      - object: ycb_055_baseball
         dx: 0.10
 
     # Cabinet: Milk と Cereal は respective category の隣の棚段に置く。
